@@ -1,0 +1,8 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: FormatFlow CSV JSON Converter
+Bundle-SymbolicName: formatflow.converter.csvjson
+Bundle-Version: 1.0.0.qualifier
+Require-Bundle: formatflow.api;bundle-version="1.0.0"
+Automatic-Module-Name: formatflow.converter.csvjson
+Bundle-RequiredExecutionEnvironment: JavaSE-24

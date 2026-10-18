@@ -6,3 +6,4 @@ Bundle-Version: 1.0.0.qualifier
 Require-Bundle: formatflow.api;bundle-version="1.0.0"
 Automatic-Module-Name: formatflow.converter.csvjson
 Bundle-RequiredExecutionEnvironment: JavaSE-24
+Export-Package: formatflow.converter.csvjson

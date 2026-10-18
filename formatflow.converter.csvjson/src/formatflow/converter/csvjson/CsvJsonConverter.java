@@ -33,7 +33,7 @@ public class CsvJsonConverter  implements FileConverter{
 		List<String> objects = new ArrayList<>();
 		
 		//отберем строки 
-		for(int i = 0; i < lines.size(); i++) {
+		for(int i = 1; i < lines.size(); i++) {
 			
 			String[] values = lines.get(i).split(",", -1);
 			
@@ -43,9 +43,9 @@ public class CsvJsonConverter  implements FileConverter{
 				//формируем JSON-объект
 				List<String> fields = new ArrayList<>();
 				
-				for(int j = 0; j < headers.length; i++) {
+				for(int j = 0; j < headers.length; j++) {
 					fields.add(
-							"\"" + escapeJson(headers[i]) + "\": "  + 
+							"\"" + escapeJson(headers[j]) + "\": "  + 
 							"\"" + escapeJson(values[j]) + "\""
 							);
 					
@@ -53,13 +53,14 @@ public class CsvJsonConverter  implements FileConverter{
 				
 				objects.add("  {\n    " +
 	                    String.join(",\n    ", fields) + "\n  }");
-			
-		        String json = "[\n" + String.join(",\n", objects) + "\n]";
-		        
-		        Files.writeString(
-		                target.toPath(), json, StandardCharsets.UTF_8);
+		
 			
 		}
+		
+		 String json = "[\n" + String.join(",\n", objects) + "\n]";
+	        
+	        Files.writeString(
+	                target.toPath(), json, StandardCharsets.UTF_8);
 	}
 	
 	private String escapeJson(String value) {

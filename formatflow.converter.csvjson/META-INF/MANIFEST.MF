@@ -5,5 +5,7 @@ Bundle-SymbolicName: formatflow.converter.csvjson
 Bundle-Version: 1.0.0.qualifier
 Require-Bundle: formatflow.api;bundle-version="1.0.0"
 Automatic-Module-Name: formatflow.converter.csvjson
-Bundle-RequiredExecutionEnvironment: JavaSE-24
+Bundle-Activator: formatflow.converter.csvjson.CsvJsonActivator
+Bundle-RequiredExecutionEnvironment: JavaSE-21
 Export-Package: formatflow.converter.csvjson
+Import-Package: org.osgi.framework;version="1.10.0"

@@ -15,3 +15,7 @@ target/
 # Temporary files
 *.tmp
 *.swp
+
+# Temporary conversion files
+/formatflow.core/input.csv
+/formatflow.core/src/output.json

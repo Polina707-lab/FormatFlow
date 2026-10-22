@@ -1,6 +1,7 @@
 package formatflow.core;
 
 import org.osgi.framework.BundleActivator;
+
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
 import org.osgi.util.tracker.ServiceTracker;
@@ -15,64 +16,34 @@ import formatflow.api.FileConverter;
 
 public class CoreActivator implements BundleActivator {
 
-    private ServiceTracker<FileConverter, FileConverter> tracker;
+ private ConverterRegistry registry;
+ 
 
     @Override
     public void start(BundleContext context) throws Exception {
+    	
         System.out.println("FormatFlow Core started");
 
-        tracker = new ServiceTracker<>(
-                context,
-                FileConverter.class,
-                new ServiceTrackerCustomizer<FileConverter, FileConverter>() {
+        registry = new ConverterRegistry(context);
+        registry.start();
+        
+        System.out.println("Available converters:");
 
-                    @Override
-                    public FileConverter addingService(
-                            ServiceReference<FileConverter> reference) {
-
-                        FileConverter converter = context.getService(reference);
-
-                        if (converter != null) {
-                            System.out.println("Converter added: "
-                                    + converter.getSourceFormat()
-                                    + " -> "
-                                    + converter.getTargetFormat());
-                        }
-
-                        return converter;
-                    }
-
-                    @Override
-                    public void modifiedService(
-                            ServiceReference<FileConverter> reference,
-                            FileConverter converter) {
-
-                        System.out.println("Converter service modified");
-                    }
-
-                    @Override
-                    public void removedService(
-                            ServiceReference<FileConverter> reference,
-                            FileConverter converter) {
-
-                        System.out.println("Converter removed: "
-                                + converter.getSourceFormat()
-                                + " -> "
-                                + converter.getTargetFormat());
-
-                        context.ungetService(reference);
-                    }
-                }
+        registry.getConverters().forEach(converter  ->
+        		System.out.println(
+        				converter.getSourceFormat() + " -> " + converter.getTargetFormat()
+        				)
         );
-
-        tracker.open();
+       
     }
 
     @Override
     public void stop(BundleContext context) throws Exception {
-        if (tracker != null) {
-            tracker.close();
-            tracker = null;
+    			if(registry != null) {
+    				registry.stop();
+    				registry = null;
+  
+    				
         }
 
         System.out.println("FormatFlow Core stopped");

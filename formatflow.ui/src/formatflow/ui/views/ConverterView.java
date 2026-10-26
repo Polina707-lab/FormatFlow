@@ -15,6 +15,15 @@ import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.part.ViewPart;
 
+import java.io.IOException;
+
+import org.osgi.framework.Bundle;
+import org.osgi.framework.BundleContext;
+import org.osgi.framework.FrameworkUtil;
+import org.osgi.util.tracker.ServiceTracker;
+
+import formatflow.api.FileConversionService;
+
 public class ConverterView extends ViewPart {
 
     private Text sourceFileText;
@@ -24,10 +33,43 @@ public class ConverterView extends ViewPart {
     private Combo targetFormatCombo;
 
     private Label statusLabel;
+    private ServiceTracker<FileConversionService, FileConversionService> serviceTracker;
 
     @Override
     public void createPartControl(Composite parent) {
+    	Bundle bundle = FrameworkUtil.getBundle(ConverterView.class);
 
+    	System.out.println("UI Bundle: " + bundle);
+
+    	if (bundle == null) {
+    	    throw new IllegalStateException(
+    	            "ConverterView is not loaded from an OSGi bundle"
+    	    );
+    	}
+
+    	System.out.println("UI Bundle state: " + bundle.getState());
+
+    	BundleContext context = bundle.getBundleContext();
+
+    	System.out.println("UI BundleContext: " + context);
+
+    	if (context == null) {
+    	    throw new IllegalStateException(
+    	            "FormatFlow UI BundleContext is unavailable"
+    	    );
+    	}
+
+    	serviceTracker = new ServiceTracker<>(
+    	        context,
+    	        FileConversionService.class,
+    	        null
+    	);
+
+    	serviceTracker.open();
+    	
+ 
+    	
+    	
         Composite container = new Composite(parent, SWT.NONE);
         container.setLayout(new GridLayout(1, false));
 
@@ -185,6 +227,8 @@ public class ConverterView extends ViewPart {
                     "Missing file",
                     "Please select source and output files."
             );
+            
+            
             return;
         }
 
@@ -198,31 +242,84 @@ public class ConverterView extends ViewPart {
             );
             return;
         }
+        
+        
+        	File target = new File(outputPath);
+        	
+        	try {
+        		if(source.getCanonicalFile().equals(target.getCanonicalFile())) {
+        			MessageDialog.openError(
+        					getSite(). getShell(),
+        					"Invalid output file",
+        					"Source and output files must be different"
+        					);
+        			return;
+        		}
+        		
+        	}catch (IOException e){
+        		MessageDialog.openError(
+        				getSite().getShell(),
+        				"File error",
+        				e.getMessage()
+        				);
+        		return;
+        	}
+        	
+        	String sourceFormat = sourceFormatCombo.getText();
+        	String targetFormat = targetFormatCombo.getText();
+        	
+        	FileConversionService service = serviceTracker.getService();
 
-        if (new File(outputPath).equals(source)) {
-            MessageDialog.openError(
-                    getSite().getShell(),
-                    "Invalid output file",
-                    "Source and output files must be different."
-            );
-            return;
-        }
+        	if (service == null) {
+        	    statusLabel.setText("Conversion service is unavailable");
 
-        String sourceFormat = sourceFormatCombo.getText();
-        String targetFormat = targetFormatCombo.getText();
+        	    MessageDialog.openError(
+        	            getSite().getShell(),
+        	            "Service unavailable",
+        	            "File conversion service is not available."
+        	    );
+        	    return;
+        	}
 
-        statusLabel.setText(
-                "Ready: " + sourceFormat + " -> " + targetFormat
-        );
+        	try {
+        	    service.convert(
+        	            source,
+        	            target,
+        	            sourceFormat,
+        	            targetFormat
+        	    );
 
-        MessageDialog.openInformation(
-                getSite().getShell(),
-                "FormatFlow",
-                "The interface is ready.\n"
-                + "Next step: connect ConversionService."
-        );
+        	    statusLabel.setText("Conversion completed successfully");
+
+        	    MessageDialog.openInformation(
+        	            getSite().getShell(),
+        	            "Success",
+        	            "File converted successfully!"
+        	    );
+
+        	} catch (IOException | IllegalArgumentException e) {
+        	    statusLabel.setText("Conversion failed");
+
+        	    MessageDialog.openError(
+        	            getSite().getShell(),
+        	            "Conversion error",
+        	            e.getMessage() != null ? e.getMessage() : e.toString()
+        	    );
+        	}
+
+        
     }
 
+    @Override
+    public void dispose() {
+        if (serviceTracker != null) {
+            serviceTracker.close();
+            serviceTracker = null;
+        }
+
+        super.dispose();
+    }
+    
     @Override
     public void setFocus() {
         if (sourceFileText != null

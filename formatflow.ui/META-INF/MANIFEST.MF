@@ -4,6 +4,8 @@ Bundle-Name: FormatFlow UI
 Bundle-SymbolicName: formatflow.ui;singleton:=true
 Bundle-Version: 1.0.0.qualifier
 Require-Bundle: org.eclipse.ui,
- org.eclipse.core.runtime;bundle-version="3.34.0"
+ org.eclipse.core.runtime;bundle-version="3.34.0",
+ formatflow.api;bundle-version="1.0.0"
 Automatic-Module-Name: formatflow.ui
 Bundle-RequiredExecutionEnvironment: JavaSE-21
+Bundle-ActivationPolicy: lazy

@@ -14,6 +14,9 @@ import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.part.ViewPart;
+import org.eclipse.swt.widgets.Display;
+import org.osgi.framework.ServiceReference;
+import org.osgi.util.tracker.ServiceTrackerCustomizer;
 
 import java.io.IOException;
 
@@ -34,7 +37,7 @@ public class ConverterView extends ViewPart {
     private Combo targetFormatCombo;
     
     private ConverterChangeListener converterChangeListener;
-    private FileConversionService subscribedService;
+    private Button convertButton;
 
     private Label statusLabel;
     private ServiceTracker<FileConversionService, FileConversionService> serviceTracker;
@@ -62,14 +65,61 @@ public class ConverterView extends ViewPart {
     	            "FormatFlow UI BundleContext is unavailable"
     	    );
     	}
+    	
+    	converterChangeListener = () -> {
+    	    scheduleFormatsUpdate();
+    	};
 
-    	serviceTracker = new ServiceTracker<>(
-    	        context,
-    	        FileConversionService.class,
-    	        null
-    	);
 
-    	serviceTracker.open();
+serviceTracker = new ServiceTracker<>(
+        context,
+        FileConversionService.class,
+        new ServiceTrackerCustomizer<FileConversionService, FileConversionService>() {
+
+            @Override
+            public FileConversionService addingService(
+                    ServiceReference<FileConversionService> reference) {
+
+                FileConversionService service =
+                        context.getService(reference);
+
+                if (service != null) {
+                    service.addConverterChangeListener(
+                            converterChangeListener
+                    );
+                }
+
+                scheduleFormatsUpdate();
+
+                return service;
+            }
+
+            @Override
+            public void modifiedService(
+                    ServiceReference<FileConversionService> reference,
+                    FileConversionService service) {
+
+                scheduleFormatsUpdate();
+            }
+
+            @Override
+            public void removedService(
+                    ServiceReference<FileConversionService> reference,
+                    FileConversionService service) {
+
+                service.removeConverterChangeListener(
+                        converterChangeListener
+                );
+
+                context.ungetService(reference);
+
+                scheduleFormatsUpdate();
+            }
+        }
+);
+
+serviceTracker.open();
+
     	
  
     	
@@ -186,7 +236,7 @@ public class ConverterView extends ViewPart {
         });
 
         // Convert button
-        Button convertButton = new Button(container, SWT.PUSH);
+        convertButton = new Button(container, SWT.PUSH);
         convertButton.setText("Convert");
 
         GridData buttonData =
@@ -206,29 +256,7 @@ public class ConverterView extends ViewPart {
         );
         
         updateSourceFormats();
-        
-
-converterChangeListener = () -> {
-    if (statusLabel == null || statusLabel.isDisposed()) {
-        return;
-    }
-
-    statusLabel.getDisplay().asyncExec(() -> {
-        if (statusLabel.isDisposed()) {
-            return;
-        }
-
-        updateSourceFormats();
-    });
-};
-
-subscribedService = serviceTracker.getService();
-
-if (subscribedService != null) {
-    subscribedService.addConverterChangeListener(
-            converterChangeListener
-    );
-}
+       
 
     }
 
@@ -359,24 +387,16 @@ if (subscribedService != null) {
 @Override
 public void dispose() {
 
-    if (subscribedService != null
-            && converterChangeListener != null) {
-
-        subscribedService.removeConverterChangeListener(
-                converterChangeListener
-        );
-
-        subscribedService = null;
-        converterChangeListener = null;
-    }
-
     if (serviceTracker != null) {
         serviceTracker.close();
         serviceTracker = null;
     }
 
+    converterChangeListener = null;
+
     super.dispose();
 }
+
 
     
     @Override
@@ -390,7 +410,11 @@ public void dispose() {
     
 
 
+
+
 private void updateSourceFormats() {
+
+    String previousSource = sourceFormatCombo.getText();
 
     FileConversionService service = serviceTracker.getService();
 
@@ -398,6 +422,7 @@ private void updateSourceFormats() {
         sourceFormatCombo.removeAll();
         targetFormatCombo.removeAll();
         statusLabel.setText("Conversion service is unavailable");
+        updateConvertButtonState();
         return;
     }
 
@@ -406,25 +431,39 @@ private void updateSourceFormats() {
 
     sourceFormatCombo.setItems(formats);
 
-    if (formats.length > 0) {
-        sourceFormatCombo.select(0);
-        updateTargetFormats();
-
-        statusLabel.setText("Ready to convert");
-
-    } else {
+    if (formats.length == 0) {
         targetFormatCombo.removeAll();
         statusLabel.setText("No converters available");
+        updateConvertButtonState();
+        return;
     }
+
+    int previousIndex = sourceFormatCombo.indexOf(previousSource);
+
+    if (previousIndex >= 0) {
+        sourceFormatCombo.select(previousIndex);
+    } else {
+        sourceFormatCombo.select(0);
+    }
+
+    updateTargetFormats();
+
+    statusLabel.setText("Ready to convert");
+    updateConvertButtonState();
 }
 
 
+
+
 private void updateTargetFormats() {
+
+    String previousTarget = targetFormatCombo.getText();
 
     FileConversionService service = serviceTracker.getService();
 
     if (service == null) {
         targetFormatCombo.removeAll();
+        updateConvertButtonState();
         return;
     }
 
@@ -435,9 +474,57 @@ private void updateTargetFormats() {
 
     targetFormatCombo.setItems(formats);
 
-    if (formats.length > 0) {
+    int previousIndex = targetFormatCombo.indexOf(previousTarget);
+
+    if (previousIndex >= 0) {
+        targetFormatCombo.select(previousIndex);
+    } else if (formats.length > 0) {
         targetFormatCombo.select(0);
     }
+
+    updateConvertButtonState();
 }
+
+
+
+private void updateConvertButtonState() {
+
+    if (convertButton == null || convertButton.isDisposed()) {
+        return;
+    }
+
+    boolean formatsAvailable =
+            !sourceFormatCombo.getText().isEmpty()
+            && !targetFormatCombo.getText().isEmpty();
+
+    boolean serviceAvailable =
+            serviceTracker != null
+            && serviceTracker.getService() != null;
+
+    convertButton.setEnabled(
+            formatsAvailable && serviceAvailable
+    );
+}
+
+
+private void scheduleFormatsUpdate() {
+
+    Display display = Display.getDefault();
+
+    if (display.isDisposed()) {
+        return;
+    }
+
+    display.asyncExec(() -> {
+
+        if (statusLabel == null || statusLabel.isDisposed()) {
+            return;
+        }
+
+        updateSourceFormats();
+    });
+}
+
+
 
 }

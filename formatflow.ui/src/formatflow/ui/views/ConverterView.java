@@ -22,6 +22,7 @@ import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
 import org.osgi.util.tracker.ServiceTracker;
 
+import formatflow.api.ConverterChangeListener;
 import formatflow.api.FileConversionService;
 
 public class ConverterView extends ViewPart {
@@ -31,6 +32,9 @@ public class ConverterView extends ViewPart {
 
     private Combo sourceFormatCombo;
     private Combo targetFormatCombo;
+    
+    private ConverterChangeListener converterChangeListener;
+    private FileConversionService subscribedService;
 
     private Label statusLabel;
     private ServiceTracker<FileConversionService, FileConversionService> serviceTracker;
@@ -76,6 +80,8 @@ public class ConverterView extends ViewPart {
         container.setLayoutData(
                 new GridData(SWT.FILL, SWT.FILL, true, true)
         );
+        
+     
 
         // Header
         Label title = new Label(container, SWT.NONE);
@@ -125,11 +131,14 @@ public class ConverterView extends ViewPart {
 
         sourceFormatCombo =
                 new Combo(sourceFormatColumn, SWT.DROP_DOWN | SWT.READ_ONLY);
-        sourceFormatCombo.setItems("CSV");
-        sourceFormatCombo.select(0);
+
         sourceFormatCombo.setLayoutData(
                 new GridData(SWT.FILL, SWT.CENTER, true, false)
         );
+        
+        sourceFormatCombo.addListener(SWT.Selection, event -> {
+            updateTargetFormats();
+        });
 
         Composite targetFormatColumn =
                 new Composite(formatsRow, SWT.NONE);
@@ -142,8 +151,7 @@ public class ConverterView extends ViewPart {
 
         targetFormatCombo =
                 new Combo(targetFormatColumn, SWT.DROP_DOWN | SWT.READ_ONLY);
-        targetFormatCombo.setItems("JSON");
-        targetFormatCombo.select(0);
+     
         targetFormatCombo.setLayoutData(
                 new GridData(SWT.FILL, SWT.CENTER, true, false)
         );
@@ -196,6 +204,32 @@ public class ConverterView extends ViewPart {
         statusLabel.setLayoutData(
                 new GridData(SWT.FILL, SWT.CENTER, true, false)
         );
+        
+        updateSourceFormats();
+        
+
+converterChangeListener = () -> {
+    if (statusLabel == null || statusLabel.isDisposed()) {
+        return;
+    }
+
+    statusLabel.getDisplay().asyncExec(() -> {
+        if (statusLabel.isDisposed()) {
+            return;
+        }
+
+        updateSourceFormats();
+    });
+};
+
+subscribedService = serviceTracker.getService();
+
+if (subscribedService != null) {
+    subscribedService.addConverterChangeListener(
+            converterChangeListener
+    );
+}
+
     }
 
     private void createSectionLabel(
@@ -220,6 +254,8 @@ public class ConverterView extends ViewPart {
 
         String sourcePath = sourceFileText.getText().trim();
         String outputPath = outputFileText.getText().trim();
+        
+        
 
         if (sourcePath.isEmpty() || outputPath.isEmpty()) {
             MessageDialog.openWarning(
@@ -268,6 +304,15 @@ public class ConverterView extends ViewPart {
         	String sourceFormat = sourceFormatCombo.getText();
         	String targetFormat = targetFormatCombo.getText();
         	
+        	if (sourceFormat.isEmpty() || targetFormat.isEmpty()) {
+        	    MessageDialog.openWarning(
+        	            getSite().getShell(),
+        	            "Missing format",
+        	            "Please select source and target formats."
+        	    );
+        	    return;
+        	}
+        	
         	FileConversionService service = serviceTracker.getService();
 
         	if (service == null) {
@@ -310,15 +355,29 @@ public class ConverterView extends ViewPart {
         
     }
 
-    @Override
-    public void dispose() {
-        if (serviceTracker != null) {
-            serviceTracker.close();
-            serviceTracker = null;
-        }
 
-        super.dispose();
+@Override
+public void dispose() {
+
+    if (subscribedService != null
+            && converterChangeListener != null) {
+
+        subscribedService.removeConverterChangeListener(
+                converterChangeListener
+        );
+
+        subscribedService = null;
+        converterChangeListener = null;
     }
+
+    if (serviceTracker != null) {
+        serviceTracker.close();
+        serviceTracker = null;
+    }
+
+    super.dispose();
+}
+
     
     @Override
     public void setFocus() {
@@ -327,4 +386,58 @@ public class ConverterView extends ViewPart {
             sourceFileText.setFocus();
         }
     }
+    
+    
+
+
+private void updateSourceFormats() {
+
+    FileConversionService service = serviceTracker.getService();
+
+    if (service == null) {
+        sourceFormatCombo.removeAll();
+        targetFormatCombo.removeAll();
+        statusLabel.setText("Conversion service is unavailable");
+        return;
+    }
+
+    String[] formats = service.getSourceFormats()
+            .toArray(new String[0]);
+
+    sourceFormatCombo.setItems(formats);
+
+    if (formats.length > 0) {
+        sourceFormatCombo.select(0);
+        updateTargetFormats();
+
+        statusLabel.setText("Ready to convert");
+
+    } else {
+        targetFormatCombo.removeAll();
+        statusLabel.setText("No converters available");
+    }
+}
+
+
+private void updateTargetFormats() {
+
+    FileConversionService service = serviceTracker.getService();
+
+    if (service == null) {
+        targetFormatCombo.removeAll();
+        return;
+    }
+
+    String sourceFormat = sourceFormatCombo.getText();
+
+    String[] formats = service.getTargetFormats(sourceFormat)
+            .toArray(new String[0]);
+
+    targetFormatCombo.setItems(formats);
+
+    if (formats.length > 0) {
+        targetFormatCombo.select(0);
+    }
+}
+
 }

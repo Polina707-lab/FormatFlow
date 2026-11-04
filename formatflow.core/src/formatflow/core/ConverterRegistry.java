@@ -1,12 +1,16 @@
 package formatflow.core;
 
 import org.osgi.framework.BundleContext;
+
 import org.osgi.framework.ServiceReference;
 import org.osgi.util.tracker.ServiceTracker;
 import org.osgi.util.tracker.ServiceTrackerCustomizer;
+import java.util.concurrent.CopyOnWriteArrayList;
+import formatflow.api.ConverterChangeListener;
 
 import java.util.ArrayList;
 import java.util.List;
+
 
 
 import formatflow.api.FileConverter;
@@ -15,6 +19,9 @@ public class ConverterRegistry {
 	
 	private final BundleContext context;
 	private ServiceTracker<FileConverter, FileConverter> tracker;
+	
+	private final List<ConverterChangeListener> listeners =
+	        new CopyOnWriteArrayList<>();
 	
 	public ConverterRegistry(BundleContext context) {
 		//инъекция зависимостей через конструктор
@@ -41,6 +48,7 @@ public class ConverterRegistry {
                                     + converter.getTargetFormat());
                         }
 
+                        notifyListeners();
                         return converter;
                     }
 
@@ -50,6 +58,7 @@ public class ConverterRegistry {
                             FileConverter converter) {
 
                         System.out.println("Converter service modified");
+                        notifyListeners();
                     }
 
                     @Override
@@ -63,6 +72,7 @@ public class ConverterRegistry {
                                 + converter.getTargetFormat());
 
                         context.ungetService(reference);
+                        notifyListeners();
                     }
                 }
         );
@@ -70,6 +80,22 @@ public class ConverterRegistry {
         tracker.open();
     }
     
+
+public void addListener(ConverterChangeListener listener) {
+    listeners.add(listener);
+}
+
+public void removeListener(ConverterChangeListener listener) {
+    listeners.remove(listener);
+}
+
+private void notifyListeners() {
+    for (ConverterChangeListener listener : listeners) {
+        listener.convertersChanged();
+    }
+}
+
+
     public List<FileConverter>  getConverters(){
     	if(tracker == null) {
     		return List.of();

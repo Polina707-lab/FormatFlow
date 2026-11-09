@@ -24,6 +24,11 @@ import formatflow.api.FileConversionService;
 import formatflow.ui.services.ConversionServiceTracker;
 import formatflow.ui.validation.ConversionValidator;
 
+import java.nio.file.Path;
+
+import formatflow.ui.preview.FilePreviewPanel;
+import formatflow.ui.preview.FilePreviewService;
+
 public class ConverterView extends ViewPart {
 
     private Text sourceFileText;
@@ -36,6 +41,11 @@ public class ConverterView extends ViewPart {
     private Label statusLabel;
 
     private ConversionServiceTracker serviceTracker;
+    private FilePreviewPanel sourcePreview;
+    private FilePreviewPanel outputPreview;
+
+    private final FilePreviewService previewService =
+            new FilePreviewService();
 
     @Override
     public void createPartControl(Composite parent) {
@@ -52,6 +62,7 @@ public class ConverterView extends ViewPart {
         createFormatsSection(container);
         createOutputFileSection(container);
         createConvertSection(container);
+        createPreviewSection(container);
 
         // Запускаем отслеживание OSGi-сервиса
         Bundle bundle = FrameworkUtil.getBundle(ConverterView.class);
@@ -100,6 +111,7 @@ public class ConverterView extends ViewPart {
             FileDialog dialog = new FileDialog(
                     parent.getShell(), SWT.OPEN
             );
+            
 
             dialog.setText("Select source file");
 
@@ -107,6 +119,13 @@ public class ConverterView extends ViewPart {
 
             if (path != null) {
                 sourceFileText.setText(path);
+            }
+        });
+        
+        sourceFileText.addListener(SWT.Modify, event -> {
+            if (sourcePreview != null) {
+                updatePreview(sourceFileText.getText(), sourcePreview);
+                outputPreview.clearPreview();
             }
         });
     }
@@ -131,10 +150,10 @@ public class ConverterView extends ViewPart {
                 new GridData(SWT.FILL, SWT.CENTER, true, false)
         );
 
-        sourceFormatCombo.addListener(
-                SWT.Selection,
-                event -> updateTargetFormats()
-        );
+        sourceFormatCombo.addListener(SWT.Selection, event -> {
+            updateTargetFormats();
+            outputPreview.clearPreview();
+        });
 
         Composite targetColumn = new Composite(row, SWT.NONE);
         targetColumn.setLayout(new GridLayout(1, false));
@@ -151,6 +170,10 @@ public class ConverterView extends ViewPart {
         targetFormatCombo.setLayoutData(
                 new GridData(SWT.FILL, SWT.CENTER, true, false)
         );
+        
+        targetFormatCombo.addListener(SWT.Selection, event -> {
+            outputPreview.clearPreview();
+        });
     }
 
     private void createOutputFileSection(Composite parent) {
@@ -189,6 +212,12 @@ public class ConverterView extends ViewPart {
 
             if (path != null) {
                 outputFileText.setText(path);
+            }
+        });
+        
+        outputFileText.addListener(SWT.Modify, event -> {
+            if (outputPreview != null) {
+                outputPreview.clearPreview();
             }
         });
     }
@@ -287,6 +316,8 @@ public class ConverterView extends ViewPart {
                     sourceFormat,
                     targetFormat
             );
+            
+            updatePreview(outputPath, outputPreview);
 
             statusLabel.setText("Conversion completed successfully");
 
@@ -298,6 +329,7 @@ public class ConverterView extends ViewPart {
 
         } catch (IOException | IllegalArgumentException e) {
             statusLabel.setText("Conversion failed");
+            outputPreview.clearPreview();
 
             MessageDialog.openError(
                     getSite().getShell(),
@@ -414,6 +446,56 @@ public class ConverterView extends ViewPart {
 
             updateSourceFormats();
         });
+    }
+    
+    private void createPreviewSection(Composite parent) {
+
+        Composite previewRow = new Composite(parent, SWT.NONE);
+        previewRow.setLayout(new GridLayout(2, true));
+        previewRow.setLayoutData(
+                new GridData(SWT.FILL, SWT.FILL, true, true)
+        );
+
+        sourcePreview = new FilePreviewPanel(
+                previewRow, "Source preview"
+        );
+
+        sourcePreview.setLayoutData(
+                new GridData(SWT.FILL, SWT.FILL, true, true)
+        );
+
+        outputPreview = new FilePreviewPanel(
+                previewRow, "Output preview"
+        );
+
+        outputPreview.setLayoutData(
+                new GridData(SWT.FILL, SWT.FILL, true, true)
+        );
+    }
+    
+    private void updatePreview(
+            String filePath,
+            FilePreviewPanel panel
+    ) {
+        if (filePath == null || filePath.isBlank()) {
+            panel.clearPreview();
+            return;
+        }
+
+        try {
+            String content = previewService.readPreview(
+                    Path.of(filePath.trim())
+            );
+
+            panel.setPreview(content);
+
+        } catch (IOException | IllegalArgumentException e) {
+            panel.setPreview(
+                    "Preview unavailable: "
+                            + (e.getMessage() != null
+                            ? e.getMessage() : e.toString())
+            );
+        }
     }
 
     @Override

@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: FormatFlow JSON to CSV Converter
+Bundle-SymbolicName: formatflow.converter.jsoncsv
+Bundle-Version: 1.0.0.qualifier
+Automatic-Module-Name: formatflow.converter.jsoncsv
+Bundle-Activator: formatflow.converter.jsoncsv.JsonCsvActivator
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: formatflow.api
+Import-Package: org.osgi.framework, com.google.gson

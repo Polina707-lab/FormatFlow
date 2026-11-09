@@ -28,6 +28,7 @@ import java.nio.file.Path;
 
 import formatflow.ui.preview.FilePreviewPanel;
 import formatflow.ui.preview.FilePreviewService;
+import formatflow.ui.util.FileFormatDetector;
 
 public class ConverterView extends ViewPart {
 
@@ -123,9 +124,18 @@ public class ConverterView extends ViewPart {
         });
         
         sourceFileText.addListener(SWT.Modify, event -> {
+
             if (sourcePreview != null) {
-                updatePreview(sourceFileText.getText(), sourcePreview);
+                updatePreview(
+                        sourceFileText.getText(),
+                        sourcePreview
+                );
+
                 outputPreview.clearPreview();
+            }
+
+            if (serviceTracker != null) {
+                detectSourceFormat();
             }
         });
     }
@@ -374,6 +384,7 @@ public class ConverterView extends ViewPart {
             sourceFormatCombo.select(0);
         }
 
+        detectSourceFormat();
         updateTargetFormats();
 
         statusLabel.setText("Ready to convert");
@@ -495,6 +506,25 @@ public class ConverterView extends ViewPart {
                             + (e.getMessage() != null
                             ? e.getMessage() : e.toString())
             );
+        }
+    }
+    
+    private void detectSourceFormat() {
+
+        String filePath = sourceFileText.getText().trim();
+
+        String detectedFormat =
+                FileFormatDetector.detectFormat(filePath);
+
+        if (detectedFormat.isEmpty()) {
+            return;
+        }
+
+        int index = sourceFormatCombo.indexOf(detectedFormat);
+
+        if (index >= 0) {
+            sourceFormatCombo.select(index);
+            updateTargetFormats();
         }
     }
 

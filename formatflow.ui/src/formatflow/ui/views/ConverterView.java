@@ -29,6 +29,7 @@ import java.nio.file.Path;
 import formatflow.ui.preview.FilePreviewPanel;
 import formatflow.ui.preview.FilePreviewService;
 import formatflow.ui.util.FileFormatDetector;
+import formatflow.ui.util.OutputPathGenerator;
 
 public class ConverterView extends ViewPart {
 
@@ -47,6 +48,9 @@ public class ConverterView extends ViewPart {
 
     private final FilePreviewService previewService =
             new FilePreviewService();
+   
+    private boolean outputPathManuallyChanged = false;
+    private boolean updatingOutputPath = false;
 
     @Override
     public void createPartControl(Composite parent) {
@@ -137,6 +141,8 @@ public class ConverterView extends ViewPart {
             if (serviceTracker != null) {
                 detectSourceFormat();
             }
+
+            updateOutputPath();
         });
     }
 
@@ -162,6 +168,7 @@ public class ConverterView extends ViewPart {
 
         sourceFormatCombo.addListener(SWT.Selection, event -> {
             updateTargetFormats();
+            updateOutputPath();
             outputPreview.clearPreview();
         });
 
@@ -182,6 +189,7 @@ public class ConverterView extends ViewPart {
         );
         
         targetFormatCombo.addListener(SWT.Selection, event -> {
+            updateOutputPath();
             outputPreview.clearPreview();
         });
     }
@@ -221,11 +229,17 @@ public class ConverterView extends ViewPart {
             String path = dialog.open();
 
             if (path != null) {
+                outputPathManuallyChanged = true;
                 outputFileText.setText(path);
             }
         });
         
         outputFileText.addListener(SWT.Modify, event -> {
+
+            if (!updatingOutputPath) {
+                outputPathManuallyChanged = true;
+            }
+
             if (outputPreview != null) {
                 outputPreview.clearPreview();
             }
@@ -386,6 +400,7 @@ public class ConverterView extends ViewPart {
 
         detectSourceFormat();
         updateTargetFormats();
+        updateOutputPath();
 
         statusLabel.setText("Ready to convert");
         updateConvertButtonState();
@@ -525,6 +540,26 @@ public class ConverterView extends ViewPart {
         if (index >= 0) {
             sourceFormatCombo.select(index);
             updateTargetFormats();
+        }
+    }
+    
+    private void updateOutputPath() {
+
+        if (outputPathManuallyChanged) {
+            return;
+        }
+
+        String generatedPath = OutputPathGenerator.generate(
+                sourceFileText.getText(),
+                targetFormatCombo.getText()
+        );
+
+        updatingOutputPath = true;
+
+        try {
+            outputFileText.setText(generatedPath);
+        } finally {
+            updatingOutputPath = false;
         }
     }
 

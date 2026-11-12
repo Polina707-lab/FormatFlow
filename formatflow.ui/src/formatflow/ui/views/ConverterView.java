@@ -19,10 +19,13 @@ import org.eclipse.ui.part.ViewPart;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
+import org.eclipse.swt.custom.SashForm;
 
 import formatflow.api.FileConversionService;
 import formatflow.ui.services.ConversionServiceTracker;
 import formatflow.ui.validation.ConversionValidator;
+import formatflow.ui.components.ConversionStatusPanel;
+import formatflow.ui.components.ConversionStatusPanel.Status;
 
 import java.nio.file.Path;
 
@@ -30,6 +33,7 @@ import formatflow.ui.preview.FilePreviewPanel;
 import formatflow.ui.preview.FilePreviewService;
 import formatflow.ui.util.FileFormatDetector;
 import formatflow.ui.util.OutputPathGenerator;
+
 
 public class ConverterView extends ViewPart {
 
@@ -40,11 +44,13 @@ public class ConverterView extends ViewPart {
     private Combo targetFormatCombo;
 
     private Button convertButton;
-    private Label statusLabel;
+    private ConversionStatusPanel statusPanel;
 
     private ConversionServiceTracker serviceTracker;
     private FilePreviewPanel sourcePreview;
     private FilePreviewPanel outputPreview;
+
+
 
     private final FilePreviewService previewService =
             new FilePreviewService();
@@ -143,6 +149,7 @@ public class ConverterView extends ViewPart {
             }
 
             updateOutputPath();
+            resetConversionStatus();
         });
     }
 
@@ -170,6 +177,7 @@ public class ConverterView extends ViewPart {
             updateTargetFormats();
             updateOutputPath();
             outputPreview.clearPreview();
+            resetConversionStatus();
         });
 
         Composite targetColumn = new Composite(row, SWT.NONE);
@@ -191,6 +199,7 @@ public class ConverterView extends ViewPart {
         targetFormatCombo.addListener(SWT.Selection, event -> {
             updateOutputPath();
             outputPreview.clearPreview();
+            resetConversionStatus();
         });
     }
 
@@ -243,6 +252,8 @@ public class ConverterView extends ViewPart {
             if (outputPreview != null) {
                 outputPreview.clearPreview();
             }
+
+            resetConversionStatus();
         });
     }
 
@@ -262,11 +273,17 @@ public class ConverterView extends ViewPart {
                 event -> handleConvert()
         );
 
-        statusLabel = new Label(parent, SWT.WRAP);
-        statusLabel.setText("Ready to convert");
-        statusLabel.setLayoutData(
-                new GridData(SWT.FILL, SWT.CENTER, true, false)
+        statusPanel = new ConversionStatusPanel(parent);
+
+        GridData statusData = new GridData(
+                SWT.FILL,
+                SWT.CENTER,
+                true,
+                false
         );
+
+        statusData.verticalIndent = 8;
+        statusPanel.setLayoutData(statusData);
     }
 
     private void createSectionLabel(
@@ -298,7 +315,11 @@ public class ConverterView extends ViewPart {
                     sourcePath, outputPath
             );
         } catch (IllegalArgumentException | IOException e) {
-            statusLabel.setText("Invalid file");
+        	updateStatus(
+        	        Status.ERROR,
+        	        "Invalid file",
+        	        e.getMessage()
+        	);
 
             MessageDialog.openError(
                     getSite().getShell(),
@@ -323,7 +344,11 @@ public class ConverterView extends ViewPart {
         FileConversionService service = serviceTracker.getService();
 
         if (service == null) {
-            statusLabel.setText("Conversion service is unavailable");
+        	updateStatus(
+        	        Status.ERROR,
+        	        "Service unavailable",
+        	        "Conversion service is not available"
+        	);
 
             MessageDialog.openError(
                     getSite().getShell(),
@@ -343,7 +368,11 @@ public class ConverterView extends ViewPart {
             
             updatePreview(outputPath, outputPreview);
 
-            statusLabel.setText("Conversion completed successfully");
+            updateStatus(
+                    Status.SUCCESS,
+                    "Conversion completed successfully",
+                    "Output file is ready"
+            );
 
             MessageDialog.openInformation(
                     getSite().getShell(),
@@ -352,7 +381,12 @@ public class ConverterView extends ViewPart {
             );
 
         } catch (IOException | IllegalArgumentException e) {
-            statusLabel.setText("Conversion failed");
+        	updateStatus(
+        	        Status.ERROR,
+        	        "Conversion failed",
+        	        e.getMessage()
+        	);
+          
             outputPreview.clearPreview();
 
             MessageDialog.openError(
@@ -372,7 +406,11 @@ public class ConverterView extends ViewPart {
         if (service == null) {
             sourceFormatCombo.removeAll();
             targetFormatCombo.removeAll();
-            statusLabel.setText("Conversion service is unavailable");
+            updateStatus(
+                    Status.ERROR,
+                    "Service unavailable",
+                    "Waiting for conversion service"
+            );
             updateConvertButtonState();
             return;
         }
@@ -384,7 +422,11 @@ public class ConverterView extends ViewPart {
 
         if (formats.length == 0) {
             targetFormatCombo.removeAll();
-            statusLabel.setText("No converters available");
+            updateStatus(
+                    Status.READY,
+                    "No converters available",
+                    "Start a converter bundle to continue"
+            );
             updateConvertButtonState();
             return;
         }
@@ -402,7 +444,11 @@ public class ConverterView extends ViewPart {
         updateTargetFormats();
         updateOutputPath();
 
-        statusLabel.setText("Ready to convert");
+        updateStatus(
+                Status.READY,
+                "Ready to convert",
+                "Select files and start conversion"
+        );
         updateConvertButtonState();
     }
 
@@ -465,39 +511,48 @@ public class ConverterView extends ViewPart {
         }
 
         display.asyncExec(() -> {
-            if (statusLabel == null || statusLabel.isDisposed()
-                    || serviceTracker == null) {
-                return;
-            }
+        	if (statusPanel == null || statusPanel.isDisposed()
+        	        || serviceTracker == null) {
+        	    return;
+        	}
 
             updateSourceFormats();
         });
     }
     
-    private void createPreviewSection(Composite parent) {
+  
+private void createPreviewSection(Composite parent) {
 
-        Composite previewRow = new Composite(parent, SWT.NONE);
-        previewRow.setLayout(new GridLayout(2, true));
-        previewRow.setLayoutData(
-                new GridData(SWT.FILL, SWT.FILL, true, true)
-        );
+    SashForm previewContainer = new SashForm(
+            parent,
+            SWT.HORIZONTAL
+    );
 
-        sourcePreview = new FilePreviewPanel(
-                previewRow, "Source preview"
-        );
+    GridData layoutData = new GridData(
+            SWT.FILL,
+            SWT.FILL,
+            true,
+            true
+    );
 
-        sourcePreview.setLayoutData(
-                new GridData(SWT.FILL, SWT.FILL, true, true)
-        );
+    layoutData.heightHint = 250;
+    layoutData.minimumHeight = 150;
 
-        outputPreview = new FilePreviewPanel(
-                previewRow, "Output preview"
-        );
+    previewContainer.setLayoutData(layoutData);
 
-        outputPreview.setLayoutData(
-                new GridData(SWT.FILL, SWT.FILL, true, true)
-        );
-    }
+    sourcePreview = new FilePreviewPanel(
+            previewContainer,
+            "Source preview"
+    );
+
+    outputPreview = new FilePreviewPanel(
+            previewContainer,
+            "Output preview"
+    );
+
+    previewContainer.setWeights(50, 50);
+}
+
     
     private void updatePreview(
             String filePath,
@@ -561,6 +616,32 @@ public class ConverterView extends ViewPart {
         } finally {
             updatingOutputPath = false;
         }
+    }
+    
+    private void updateStatus(
+            Status status,
+            String message,
+            String details
+    ) {
+
+        if (statusPanel == null || statusPanel.isDisposed()) {
+            return;
+        }
+
+        statusPanel.setStatus(status, message, details);
+    }
+    
+    private void resetConversionStatus() {
+
+        if (statusPanel == null || statusPanel.isDisposed()) {
+            return;
+        }
+
+        updateStatus(
+                Status.READY,
+                "Ready to convert",
+                "Select files and start conversion"
+        );
     }
 
     @Override

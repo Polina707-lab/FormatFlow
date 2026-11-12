@@ -2,6 +2,8 @@
 package formatflow.ui.preview;
 
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.graphics.Font;
+import org.eclipse.swt.graphics.FontData;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
@@ -32,6 +34,20 @@ public class FilePreviewPanel extends Composite {
         previewText.setLayoutData(
                 new GridData(SWT.FILL, SWT.FILL, true, true)
         );
+
+        // Настраиваем моноширинный шрифт
+        FontData[] fontData = previewText.getFont().getFontData();
+
+        for (FontData data : fontData) {
+            data.setName("Monaco");
+            data.setHeight(11);
+        }
+
+        Font previewFont = new Font(getDisplay(), fontData);
+        previewText.setFont(previewFont);
+
+        // Освобождаем шрифт при удалении текстового поля
+        previewText.addDisposeListener(event -> previewFont.dispose());
 
         previewText.setText("No file selected");
     }

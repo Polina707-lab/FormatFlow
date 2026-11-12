@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: FormatFlow XML to JSON Converter
+Bundle-SymbolicName: formatflow.converter.xmljson
+Bundle-Version: 1.0.0.qualifier
+Automatic-Module-Name: formatflow.converter.xmljson
+Bundle-Activator: formatflow.converter.xmljson.XmlJsonActivator
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: formatflow.api
+Import-Package: org.osgi.framework, com.google.gson

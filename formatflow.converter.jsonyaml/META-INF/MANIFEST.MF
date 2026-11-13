@@ -1,0 +1,12 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: FormatFlow JSON to YAML Converter
+Bundle-SymbolicName: formatflow.converter.jsonyaml
+Bundle-Version: 1.0.0.qualifier
+Automatic-Module-Name: formatflow.converter.jsonyaml
+Bundle-Activator: formatflow.converter.jsonyaml.JsonYamlActivator
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: formatflow.api,
+ org.yaml.snakeyaml;bundle-version="2.7.0"
+Import-Package: com.google.gson,
+ org.osgi.framework

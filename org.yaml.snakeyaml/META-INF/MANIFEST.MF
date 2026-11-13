@@ -1,0 +1,9 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: SnakeYAML
+Bundle-SymbolicName: org.yaml.snakeyaml
+Bundle-Version: 2.7.0
+Bundle-ClassPath: snakeyaml-2.7.jar
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Export-Package: org.yaml.snakeyaml, org.yaml.snakeyaml.constructor, org.yaml.snakeyaml.error, org.yaml.snakeyaml.nodes, org.yaml.snakeyaml.representer
+

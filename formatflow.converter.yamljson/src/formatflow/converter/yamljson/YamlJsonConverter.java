@@ -1,5 +1,6 @@
 
 package formatflow.converter.yamljson;
+import formatflow.api.SafeFileWriter;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -25,9 +26,33 @@ public class YamlJsonConverter implements FileConverter {
         return "json";
     }
 
-    @Override
-    public void convert(File inputFile, File outputFile) throws IOException {
 
+@Override
+public void convert(File inputFile, File outputFile)
+        throws IOException {
+
+    try {
+        // Проверяем, что исходный файл не пустой
+        try (Reader reader = Files.newBufferedReader(
+                inputFile.toPath(),
+                StandardCharsets.UTF_8)) {
+
+            int character;
+            boolean hasContent = false;
+
+            while ((character = reader.read()) != -1) {
+                if (!Character.isWhitespace(character)) {
+                    hasContent = true;
+                    break;
+                }
+            }
+
+            if (!hasContent) {
+                throw new IOException("Input YAML file is empty");
+            }
+        }
+
+        // Читаем YAML
         Yaml yaml = new Yaml();
 
         Gson gson = new GsonBuilder()
@@ -36,15 +61,30 @@ public class YamlJsonConverter implements FileConverter {
                 .create();
 
         try (Reader reader = Files.newBufferedReader(
-                inputFile.toPath(), StandardCharsets.UTF_8)) {
+                inputFile.toPath(),
+                StandardCharsets.UTF_8)) {
 
             Object data = yaml.load(reader);
 
-            try (Writer writer = Files.newBufferedWriter(
-                    outputFile.toPath(), StandardCharsets.UTF_8)) {
+            // Записываем JSON
+            SafeFileWriter.write(outputFile.toPath(), tempFile -> {
 
-                gson.toJson(data, writer);
-            }
+                try (Writer writer = Files.newBufferedWriter(
+                        tempFile,
+                        StandardCharsets.UTF_8)) {
+
+                    gson.toJson(data, writer);
+                }
+            });
         }
+
+    } catch (Exception e) {
+        throw new IOException(
+                "Failed to convert YAML to JSON: "
+                        + e.getMessage(),
+                e
+        );
     }
+}
+
 }

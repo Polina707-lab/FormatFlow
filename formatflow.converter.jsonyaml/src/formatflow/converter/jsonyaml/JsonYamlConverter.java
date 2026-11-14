@@ -1,4 +1,5 @@
 package formatflow.converter.jsonyaml;
+import formatflow.api.SafeFileWriter;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,50 +36,76 @@ public class JsonYamlConverter implements FileConverter {
         return "yaml";
     }
 
-    @Override
-    public void convert(File source, File target)
-            throws IOException {
+@Override
+public void convert(File source, File target)
+        throws IOException {
 
-        try {
-            // Читаем JSON
-            JsonElement json;
+    try {
+        // Проверяем, что исходный файл не пустой
+        try (Reader reader = Files.newBufferedReader(
+                source.toPath(),
+                StandardCharsets.UTF_8)) {
 
-            try (Reader reader = Files.newBufferedReader(
-                    source.toPath(),
-                    StandardCharsets.UTF_8)) {
+            int character;
+            boolean hasContent = false;
 
-                json = JsonParser.parseReader(reader);
+            while ((character = reader.read()) != -1) {
+                if (!Character.isWhitespace(character)) {
+                    hasContent = true;
+                    break;
+                }
             }
 
-            // Преобразуем JSON в Java-объекты
-            Object data = convertToJava(json);
+            if (!hasContent) {
+                throw new IOException("Input JSON file is empty");
+            }
+        }
 
-            // Настраиваем формат YAML
-            DumperOptions options = new DumperOptions();
-            options.setDefaultFlowStyle(
-                    DumperOptions.FlowStyle.BLOCK
-            );
-            options.setPrettyFlow(true);
-            options.setIndent(2);
+        // Читаем JSON с начала файла
+        JsonElement json;
 
-            Yaml yaml = new Yaml(options);
+        try (Reader reader = Files.newBufferedReader(
+                source.toPath(),
+                StandardCharsets.UTF_8)) {
 
-            // Записываем YAML
+            json = JsonParser.parseReader(reader);
+        }
+
+        // Преобразуем JSON в Java-объекты
+        Object data = convertToJava(json);
+
+        // Настраиваем формат YAML
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(
+                DumperOptions.FlowStyle.BLOCK
+        );
+        options.setPrettyFlow(true);
+        options.setIndent(2);
+
+        Yaml yaml = new Yaml(
+                new JsonYamlRepresenter(options),
+                options
+        );
+
+        // Безопасно записываем YAML
+        SafeFileWriter.write(target.toPath(), tempFile -> {
+
             try (Writer writer = Files.newBufferedWriter(
-                    target.toPath(),
+                    tempFile,
                     StandardCharsets.UTF_8)) {
 
                 yaml.dump(data, writer);
             }
+        });
 
-        } catch (Exception e) {
-            throw new IOException(
-                    "Failed to convert JSON to YAML: "
-                            + e.getMessage(),
-                    e
-            );
-        }
+    } catch (Exception e) {
+        throw new IOException(
+                "Failed to convert JSON to YAML: "
+                        + e.getMessage(),
+                e
+        );
     }
+}
 
     private Object convertToJava(JsonElement json) {
 
@@ -130,7 +157,7 @@ public class JsonYamlConverter implements FileConverter {
                 try {
                     return number.longValueExact();
                 } catch (ArithmeticException ex) {
-                    return number.doubleValue();
+                    return number;
                 }
             }
         }

@@ -4,24 +4,17 @@ package formatflow.converter.jsonxml;
 import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.transform.OutputKeys;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamWriter;
 
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
+import com.google.gson.Strictness;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 
 import formatflow.api.FileConverter;
 
@@ -41,120 +34,127 @@ public class JsonXmlConverter implements FileConverter {
     public void convert(File source, File target)
             throws IOException {
 
-        try {
-            JsonElement json;
+        try (Reader reader = Files.newBufferedReader(
+                source.toPath(), StandardCharsets.UTF_8);
+             JsonReader jsonReader = new JsonReader(reader);
+             Writer writer = Files.newBufferedWriter(
+                     target.toPath(), StandardCharsets.UTF_8)) {
 
-            // 1. Читаем JSON
-            try (Reader reader = Files.newBufferedReader(
-                    source.toPath(), StandardCharsets.UTF_8)) {
+            jsonReader.setStrictness(Strictness.STRICT);
 
-                json = JsonParser.parseReader(reader);
+            XMLStreamWriter xmlWriter =
+                    XMLOutputFactory.newInstance()
+                            .createXMLStreamWriter(writer);
+
+            try {
+                xmlWriter.writeStartDocument("UTF-8", "1.0");
+
+                writeElement(jsonReader, xmlWriter, "json", null);
+
+                if (jsonReader.peek() != JsonToken.END_DOCUMENT) {
+                    throw new IOException(
+                            "Unexpected content after JSON value"
+                    );
+                }
+
+                xmlWriter.writeEndDocument();
+                xmlWriter.flush();
+
+            } finally {
+                xmlWriter.close();
             }
 
-            // 2. Создаём XML-документ
-            DocumentBuilderFactory factory =
-                    DocumentBuilderFactory.newInstance();
-
-            Document document = factory
-                    .newDocumentBuilder()
-                    .newDocument();
-
-            Element root = document.createElement("json");
-            document.appendChild(root);
-
-            // 3. Преобразуем JSON в XML
-            writeElement(document, root, json);
-
-            // 4. Записываем XML в файл
-            Transformer transformer =
-                    TransformerFactory.newInstance()
-                            .newTransformer();
-
-            transformer.setOutputProperty(
-                    OutputKeys.INDENT, "yes"
-            );
-
-            transformer.setOutputProperty(
-                    OutputKeys.ENCODING, "UTF-8"
-            );
-
-            transformer.transform(
-                    new DOMSource(document),
-                    new StreamResult(target)
-            );
-
-        } catch (Exception e) {
+        } catch (XMLStreamException e) {
             throw new IOException(
-                    "Failed to convert JSON to XML: "
-                            + e.getMessage(),
-                    e
+                    "Failed to convert JSON to XML", e
             );
         }
     }
 
     private void writeElement(
-            Document document,
-            Element element,
-            JsonElement json
-    ) {
+            JsonReader jsonReader,
+            XMLStreamWriter xmlWriter,
+            String elementName,
+            String attributeName
+    ) throws IOException, XMLStreamException {
 
-        // JSON null
-        if (json == null || json.isJsonNull()) {
-            element.setAttribute("type", "null");
-            return;
+        JsonToken token = jsonReader.peek();
+
+        xmlWriter.writeStartElement(elementName);
+
+        if (attributeName != null) {
+            xmlWriter.writeAttribute("name", attributeName);
         }
 
-        // JSON object
-        if (json.isJsonObject()) {
-            element.setAttribute("type", "object");
+        switch (token) {
 
-            JsonObject object = json.getAsJsonObject();
+            case BEGIN_OBJECT -> {
+                xmlWriter.writeAttribute("type", "object");
 
-            for (String key : object.keySet()) {
+                jsonReader.beginObject();
 
-                Element child = document.createElement("entry");
-                child.setAttribute("name", key);
+                while (jsonReader.hasNext()) {
+                    String name = jsonReader.nextName();
 
-                element.appendChild(child);
+                    writeElement(
+                            jsonReader,
+                            xmlWriter,
+                            "entry",
+                            name
+                    );
+                }
 
-                writeElement(
-                        document,
-                        child,
-                        object.get(key)
+                jsonReader.endObject();
+            }
+
+            case BEGIN_ARRAY -> {
+                xmlWriter.writeAttribute("type", "array");
+
+                jsonReader.beginArray();
+
+                while (jsonReader.hasNext()) {
+                    writeElement(
+                            jsonReader,
+                            xmlWriter,
+                            "item",
+                            null
+                    );
+                }
+
+                jsonReader.endArray();
+            }
+
+            case STRING -> {
+                xmlWriter.writeAttribute("type", "string");
+                xmlWriter.writeCharacters(
+                        jsonReader.nextString()
                 );
             }
 
-            return;
-        }
-
-        // JSON array
-        if (json.isJsonArray()) {
-            element.setAttribute("type", "array");
-
-            JsonArray array = json.getAsJsonArray();
-
-            for (JsonElement item : array) {
-
-                Element child = document.createElement("item");
-                element.appendChild(child);
-
-                writeElement(document, child, item);
+            case NUMBER -> {
+                xmlWriter.writeAttribute("type", "number");
+                xmlWriter.writeCharacters(
+                        jsonReader.nextString()
+                );
             }
 
-            return;
+            case BOOLEAN -> {
+                xmlWriter.writeAttribute("type", "boolean");
+                xmlWriter.writeCharacters(
+                        String.valueOf(jsonReader.nextBoolean())
+                );
+            }
+
+            case NULL -> {
+                xmlWriter.writeAttribute("type", "null");
+                jsonReader.nextNull();
+            }
+
+            default -> throw new IOException(
+                    "Unexpected JSON token: " + token
+            );
         }
 
-        // JSON primitive
-        JsonPrimitive primitive = json.getAsJsonPrimitive();
-
-        if (primitive.isBoolean()) {
-            element.setAttribute("type", "boolean");
-        } else if (primitive.isNumber()) {
-            element.setAttribute("type", "number");
-        } else {
-            element.setAttribute("type", "string");
-        }
-
-        element.setTextContent(primitive.getAsString());
+        xmlWriter.writeEndElement();
     }
 }

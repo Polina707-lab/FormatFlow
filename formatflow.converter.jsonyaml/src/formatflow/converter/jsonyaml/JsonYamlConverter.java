@@ -1,4 +1,7 @@
+
 package formatflow.converter.jsonyaml;
+
+import formatflow.api.FileConverter;
 import formatflow.api.SafeFileWriter;
 
 import java.io.File;
@@ -8,21 +11,16 @@ import java.io.Writer;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 
 import org.yaml.snakeyaml.DumperOptions;
-import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.emitter.Emitter;
+import org.yaml.snakeyaml.events.*;
+import org.yaml.snakeyaml.nodes.Tag;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
-
-import formatflow.api.FileConverter;
+import com.google.gson.Strictness;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 
 public class JsonYamlConverter implements FileConverter {
 
@@ -36,132 +34,190 @@ public class JsonYamlConverter implements FileConverter {
         return "yaml";
     }
 
-@Override
-public void convert(File source, File target)
-        throws IOException {
+    @Override
+    public void convert(File source, File target)
+            throws IOException {
 
-    try {
-        // Проверяем, что исходный файл не пустой
-        try (Reader reader = Files.newBufferedReader(
-                source.toPath(),
-                StandardCharsets.UTF_8)) {
+        try {
+            SafeFileWriter.write(target.toPath(), tempFile -> {
 
-            int character;
-            boolean hasContent = false;
+                try (Reader reader = Files.newBufferedReader(
+                            source.toPath(), StandardCharsets.UTF_8);
+                     Writer writer = Files.newBufferedWriter(
+                            tempFile, StandardCharsets.UTF_8);
+                     JsonReader jsonReader = new JsonReader(reader)) {
 
-            while ((character = reader.read()) != -1) {
-                if (!Character.isWhitespace(character)) {
-                    hasContent = true;
-                    break;
+                    jsonReader.setStrictness(Strictness.STRICT);
+
+                    DumperOptions options = new DumperOptions();
+                    options.setDefaultFlowStyle(
+                            DumperOptions.FlowStyle.BLOCK
+                    );
+                    options.setIndent(2);
+                    options.setPrettyFlow(true);
+                    options.setAllowUnicode(true);
+
+                    Emitter emitter = new Emitter(writer, options);
+
+                    emitter.emit(new StreamStartEvent(null, null));
+                    emitter.emit(new DocumentStartEvent(
+                            null, null, false, null, null
+                    ));
+
+                    writeValue(jsonReader, emitter);
+
+                    if (jsonReader.peek() != JsonToken.END_DOCUMENT) {
+                        throw new IOException(
+                                "Unexpected content after JSON value"
+                        );
+                    }
+
+                    emitter.emit(new DocumentEndEvent(
+                            null, null, false
+                    ));
+                    emitter.emit(new StreamEndEvent(null, null));
+
+                    writer.flush();
                 }
-            }
+            });
 
-            if (!hasContent) {
-                throw new IOException("Input JSON file is empty");
-            }
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException(
+                    "Failed to convert JSON to YAML: "
+                            + e.getMessage(),
+                    e
+            );
         }
-
-        // Читаем JSON с начала файла
-        JsonElement json;
-
-        try (Reader reader = Files.newBufferedReader(
-                source.toPath(),
-                StandardCharsets.UTF_8)) {
-
-            json = JsonParser.parseReader(reader);
-        }
-
-        // Преобразуем JSON в Java-объекты
-        Object data = convertToJava(json);
-
-        // Настраиваем формат YAML
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(
-                DumperOptions.FlowStyle.BLOCK
-        );
-        options.setPrettyFlow(true);
-        options.setIndent(2);
-
-        Yaml yaml = new Yaml(
-                new JsonYamlRepresenter(options),
-                options
-        );
-
-        // Безопасно записываем YAML
-        SafeFileWriter.write(target.toPath(), tempFile -> {
-
-            try (Writer writer = Files.newBufferedWriter(
-                    tempFile,
-                    StandardCharsets.UTF_8)) {
-
-                yaml.dump(data, writer);
-            }
-        });
-
-    } catch (Exception e) {
-        throw new IOException(
-                "Failed to convert JSON to YAML: "
-                        + e.getMessage(),
-                e
-        );
     }
-}
 
-    private Object convertToJava(JsonElement json) {
+    private void writeValue(
+            JsonReader reader,
+            Emitter emitter
+    ) throws IOException {
 
-        if (json == null || json.isJsonNull()) {
-            return null;
-        }
+        JsonToken token = reader.peek();
 
-        if (json.isJsonObject()) {
-            Map<String, Object> map = new LinkedHashMap<>();
+        switch (token) {
 
-            JsonObject object = json.getAsJsonObject();
+            case BEGIN_OBJECT -> {
+                emitter.emit(new MappingStartEvent(
+                        null, Tag.MAP.getValue(),
+                        true, null, null,
+                        DumperOptions.FlowStyle.BLOCK
+                ));
 
-            for (Map.Entry<String, JsonElement> entry
-                    : object.entrySet()) {
+                reader.beginObject();
 
-                map.put(
-                        entry.getKey(),
-                        convertToJava(entry.getValue())
+                while (reader.hasNext()) {
+                    String name = reader.nextName();
+
+                    writeScalar(
+                            emitter,
+                            Tag.STR,
+                            name,
+                            DumperOptions.ScalarStyle.DOUBLE_QUOTED
+                    );
+
+                    writeValue(reader, emitter);
+                }
+
+                reader.endObject();
+
+                emitter.emit(new MappingEndEvent(null, null));
+            }
+
+            case BEGIN_ARRAY -> {
+                emitter.emit(new SequenceStartEvent(
+                        null, Tag.SEQ.getValue(),
+                        true, null, null,
+                        DumperOptions.FlowStyle.BLOCK
+                ));
+
+                reader.beginArray();
+
+                while (reader.hasNext()) {
+                    writeValue(reader, emitter);
+                }
+
+                reader.endArray();
+
+                emitter.emit(new SequenceEndEvent(null, null));
+            }
+
+            case STRING -> writeScalar(
+                    emitter,
+                    Tag.STR,
+                    reader.nextString(),
+                    DumperOptions.ScalarStyle.DOUBLE_QUOTED
+            );
+
+            case NUMBER -> {
+                String value = reader.nextString();
+                BigDecimal number;
+
+                try {
+                    number = new BigDecimal(value);
+                } catch (NumberFormatException e) {
+                    throw new IOException(
+                            "Invalid JSON number: " + value, e
+                    );
+                }
+
+                boolean integer =
+                        number.stripTrailingZeros().scale() <= 0;
+
+                writeScalar(
+                        emitter,
+                        integer ? Tag.INT : Tag.FLOAT,
+                        value,
+                        DumperOptions.ScalarStyle.PLAIN
                 );
             }
 
-            return map;
-        }
+            case BOOLEAN -> writeScalar(
+                    emitter,
+                    Tag.BOOL,
+                    Boolean.toString(reader.nextBoolean())
+                            .toLowerCase(Locale.ROOT),
+                    DumperOptions.ScalarStyle.PLAIN
+            );
 
-        if (json.isJsonArray()) {
-            List<Object> list = new ArrayList<>();
+            case NULL -> {
+                reader.nextNull();
 
-            JsonArray array = json.getAsJsonArray();
-
-            for (JsonElement element : array) {
-                list.add(convertToJava(element));
+                writeScalar(
+                        emitter,
+                        Tag.NULL,
+                        "null",
+                        DumperOptions.ScalarStyle.PLAIN
+                );
             }
 
-            return list;
+            default -> throw new IOException(
+                    "Unexpected JSON token: " + token
+            );
         }
-
-        JsonPrimitive primitive = json.getAsJsonPrimitive();
-
-        if (primitive.isBoolean()) {
-            return primitive.getAsBoolean();
-        }
-
-        if (primitive.isNumber()) {
-            BigDecimal number = new BigDecimal(primitive.getAsString());
-
-            try {
-                return number.intValueExact();
-            } catch (ArithmeticException e) {
-                try {
-                    return number.longValueExact();
-                } catch (ArithmeticException ex) {
-                    return number;
-                }
-            }
-        }
-
-        return primitive.getAsString();
     }
+
+
+private void writeScalar(
+        Emitter emitter,
+        Tag tag,
+        String value,
+        DumperOptions.ScalarStyle style
+) throws IOException {
+
+    emitter.emit(new ScalarEvent(
+            null,
+            tag.getValue(),
+            new ImplicitTuple(true, true),
+            value,
+            null,
+            null,
+            style
+    ));
+}
+
 }

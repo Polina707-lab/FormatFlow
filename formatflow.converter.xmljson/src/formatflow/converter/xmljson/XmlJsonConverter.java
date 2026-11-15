@@ -8,32 +8,19 @@ import java.io.Writer;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.Set;
 
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
+import com.google.gson.stream.JsonWriter;
 
 import formatflow.api.FileConverter;
 
 public class XmlJsonConverter implements FileConverter {
-
-    private final Gson gson = new GsonBuilder()
-            .serializeNulls()
-            .setPrettyPrinting()
-            .create();
 
     @Override
     public String getSourceFormat() {
@@ -46,113 +33,122 @@ public class XmlJsonConverter implements FileConverter {
     }
 
     @Override
-    public void convert(File source, File target)
-            throws IOException {
+    public void convert(File source, File target) throws IOException {
 
-        try {
-            // 1. Безопасно настраиваем XML-парсер
-            DocumentBuilderFactory factory =
-                    DocumentBuilderFactory.newInstance();
+        XMLStreamReader xmlReader = null;
 
-            factory.setFeature(
-                    "http://apache.org/xml/features/disallow-doctype-decl",
-                    true
+        try (Reader reader = Files.newBufferedReader(
+                    source.toPath(), StandardCharsets.UTF_8);
+             Writer writer = Files.newBufferedWriter(
+                    target.toPath(), StandardCharsets.UTF_8);
+             JsonWriter jsonWriter = new JsonWriter(writer)) {
+
+            XMLInputFactory factory =
+                    XMLInputFactory.newInstance();
+
+            factory.setProperty(
+                    XMLInputFactory.SUPPORT_DTD, false
             );
 
-            factory.setFeature(
-                    "http://xml.org/sax/features/external-general-entities",
+            factory.setProperty(
+                    XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES,
                     false
             );
 
-            factory.setFeature(
-                    "http://xml.org/sax/features/external-parameter-entities",
-                    false
-            );
+            xmlReader = factory.createXMLStreamReader(reader);
 
-            factory.setFeature(
-                    XMLConstants.FEATURE_SECURE_PROCESSING,
-                    true
-            );
+            jsonWriter.setIndent("  ");
+            jsonWriter.setSerializeNulls(true);
 
-            factory.setXIncludeAware(false);
-            factory.setExpandEntityReferences(false);
-            factory.setAttribute(
-                    XMLConstants.ACCESS_EXTERNAL_DTD, ""
-            );
-            factory.setAttribute(
-                    XMLConstants.ACCESS_EXTERNAL_SCHEMA, ""
-            );
+            if (!moveToNextElement(xmlReader)) {
+                throw new IOException("Empty XML document");
+            }
 
-            // 2. Читаем XML
-            Document document = factory
-                    .newDocumentBuilder()
-                    .parse(source);
-
-            Element root = document.getDocumentElement();
-
-            if (root == null || !"json".equals(root.getTagName())) {
+            if (!"json".equals(xmlReader.getLocalName())) {
                 throw new IOException(
                         "Invalid FormatFlow XML: root must be <json>"
                 );
             }
 
-            // 3. Восстанавливаем JSON
-            JsonElement json = readElement(root);
+            writeJsonValue(xmlReader, jsonWriter);
 
-            // 4. Записываем результат
-            try (Writer writer = Files.newBufferedWriter(
-                    target.toPath(),
-                    StandardCharsets.UTF_8)) {
+            while (xmlReader.hasNext()) {
+                int event = xmlReader.next();
 
-                gson.toJson(json, writer);
+                if (event == XMLStreamConstants.START_ELEMENT) {
+                    throw new IOException(
+                            "Unexpected XML element after root"
+                    );
+                }
             }
 
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
+            jsonWriter.flush();
+
+        } catch (XMLStreamException e) {
             throw new IOException(
                     "Failed to convert XML to JSON: "
                             + e.getMessage(),
                     e
             );
+        } finally {
+            if (xmlReader != null) {
+                try {
+                    xmlReader.close();
+                } catch (XMLStreamException ignored) {
+                }
+            }
         }
     }
 
-    private JsonElement readElement(Element element)
-            throws IOException {
+    private boolean moveToNextElement(
+            XMLStreamReader reader
+    ) throws XMLStreamException {
 
-        String type = element.getAttribute("type");
+        while (reader.hasNext()) {
+            if (reader.next() == XMLStreamConstants.START_ELEMENT) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void writeJsonValue(
+            XMLStreamReader reader,
+            JsonWriter writer
+    ) throws XMLStreamException, IOException {
+
+        String type = reader.getAttributeValue(null, "type");
+
+        if (type == null) {
+            throw new IOException(
+                    "XML element is missing type attribute"
+            );
+        }
 
         switch (type) {
 
-            case "object":
-                return readObject(element);
+            case "object" -> writeObject(reader, writer);
 
-            case "array":
-                return readArray(element);
+            case "array" -> writeArray(reader, writer);
 
-            case "string":
-                requireNoElementChildren(element);
-                return new JsonPrimitive(element.getTextContent());
+            case "string" ->
+                    writer.value(readPrimitiveText(reader));
 
-            case "number":
-                requireNoElementChildren(element);
+            case "number" -> {
+                String value = readPrimitiveText(reader);
+
                 try {
-                    return new JsonPrimitive(
-                            new BigDecimal(element.getTextContent())
-                    );
+                    writer.value(new BigDecimal(value));
                 } catch (NumberFormatException e) {
                     throw new IOException(
-                            "Invalid number: "
-                                    + element.getTextContent(),
-                            e
+                            "Invalid number: " + value, e
                     );
                 }
+            }
 
-            case "boolean":
-                requireNoElementChildren(element);
-
-                String value = element.getTextContent();
+            case "boolean" -> {
+                String value = readPrimitiveText(reader);
 
                 if (!"true".equals(value)
                         && !"false".equals(value)) {
@@ -161,102 +157,142 @@ public class XmlJsonConverter implements FileConverter {
                     );
                 }
 
-                return new JsonPrimitive(
-                        Boolean.parseBoolean(value)
-                );
+                writer.value(Boolean.parseBoolean(value));
+            }
 
-            case "null":
-                requireNoElementChildren(element);
-                return JsonNull.INSTANCE;
+            case "null" -> {
+                String value = readPrimitiveText(reader);
 
-            default:
-                throw new IOException(
-                        "Unsupported XML element type: " + type
-                );
+                if (!value.isBlank()) {
+                    throw new IOException(
+                            "Null element must be empty"
+                    );
+                }
+
+                writer.nullValue();
+            }
+
+            default -> throw new IOException(
+                    "Unsupported XML element type: " + type
+            );
         }
     }
 
-    private JsonObject readObject(Element element)
-            throws IOException {
+    private void writeObject(
+            XMLStreamReader reader,
+            JsonWriter writer
+    ) throws XMLStreamException, IOException {
 
-        JsonObject object = new JsonObject();
-        NodeList children = element.getChildNodes();
+        writer.beginObject();
 
-        for (int i = 0; i < children.getLength(); i++) {
-            Node node = children.item(i);
+        Set<String> names = new HashSet<>();
 
-            if (node.getNodeType() != Node.ELEMENT_NODE) {
-                continue;
-            }
+        while (reader.hasNext()) {
+            int event = reader.next();
 
-            Element child = (Element) node;
+            if (event == XMLStreamConstants.START_ELEMENT) {
 
-            if (!"entry".equals(child.getTagName())) {
+                if (!"entry".equals(reader.getLocalName())) {
+                    throw new IOException(
+                            "Object must contain only <entry> elements"
+                    );
+                }
+
+                String name =
+                        reader.getAttributeValue(null, "name");
+
+                if (name == null) {
+                    throw new IOException(
+                            "Entry element is missing name attribute"
+                    );
+                }
+
+                if (!names.add(name)) {
+                    throw new IOException(
+                            "Duplicate JSON property: " + name
+                    );
+                }
+
+                writer.name(name);
+                writeJsonValue(reader, writer);
+
+            } else if (event == XMLStreamConstants.END_ELEMENT) {
+                writer.endObject();
+                return;
+
+            } else if (event == XMLStreamConstants.CHARACTERS
+                    && !reader.isWhiteSpace()) {
+
                 throw new IOException(
-                        "Object must contain only <entry> elements"
+                        "Unexpected text inside object"
                 );
             }
-
-            if (!child.hasAttribute("name")) {
-                throw new IOException(
-                        "Entry element is missing name attribute"
-                );
-            }
-
-            String name = child.getAttribute("name");
-
-            if (object.has(name)) {
-                throw new IOException(
-                        "Duplicate JSON property: " + name
-                );
-            }
-
-            object.add(name, readElement(child));
         }
 
-        return object;
+        throw new IOException("Unclosed XML object");
     }
 
-    private JsonArray readArray(Element element)
-            throws IOException {
+    private void writeArray(
+            XMLStreamReader reader,
+            JsonWriter writer
+    ) throws XMLStreamException, IOException {
 
-        JsonArray array = new JsonArray();
-        NodeList children = element.getChildNodes();
+        writer.beginArray();
 
-        for (int i = 0; i < children.getLength(); i++) {
-            Node node = children.item(i);
+        while (reader.hasNext()) {
+            int event = reader.next();
 
-            if (node.getNodeType() != Node.ELEMENT_NODE) {
-                continue;
-            }
+            if (event == XMLStreamConstants.START_ELEMENT) {
 
-            Element child = (Element) node;
+                if (!"item".equals(reader.getLocalName())) {
+                    throw new IOException(
+                            "Array must contain only <item> elements"
+                    );
+                }
 
-            if (!"item".equals(child.getTagName())) {
+                writeJsonValue(reader, writer);
+
+            } else if (event == XMLStreamConstants.END_ELEMENT) {
+                writer.endArray();
+                return;
+
+            } else if (event == XMLStreamConstants.CHARACTERS
+                    && !reader.isWhiteSpace()) {
+
                 throw new IOException(
-                        "Array must contain only <item> elements"
+                        "Unexpected text inside array"
                 );
             }
-
-            array.add(readElement(child));
         }
 
-        return array;
+        throw new IOException("Unclosed XML array");
     }
 
-    private void requireNoElementChildren(Element element)
-            throws IOException {
+    private String readPrimitiveText(
+            XMLStreamReader reader
+    ) throws XMLStreamException, IOException {
 
-        NodeList children = element.getChildNodes();
+        StringBuilder text = new StringBuilder();
 
-        for (int i = 0; i < children.getLength(); i++) {
-            if (children.item(i).getNodeType()
-                    == Node.ELEMENT_NODE) {
+        while (reader.hasNext()) {
+            int event = reader.next();
+
+            if (event == XMLStreamConstants.CHARACTERS
+                    || event == XMLStreamConstants.CDATA) {
+
+                text.append(reader.getText());
+
+            } else if (event == XMLStreamConstants.START_ELEMENT) {
 
                 throw new IOException(
                         "Primitive value cannot contain XML elements"
                 );
+
+            } else if (event == XMLStreamConstants.END_ELEMENT) {
+                return text.toString();
             }
         }
+
+        throw new IOException("Unclosed XML primitive");
     }
 }

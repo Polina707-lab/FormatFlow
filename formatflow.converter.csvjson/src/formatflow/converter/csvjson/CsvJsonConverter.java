@@ -7,6 +7,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+
+import com.google.gson.stream.JsonWriter;
 
 import formatflow.api.FileConverter;
 
@@ -22,64 +26,61 @@ public class CsvJsonConverter implements FileConverter {
         return "json";
     }
 
-    @Override
-    public void convert(File source, File target) throws IOException {
+  @Override
+public void convert(File source, File target) throws IOException {
 
-        List<String> lines = Files.readAllLines(
-                source.toPath(),
-                StandardCharsets.UTF_8
-        );
+    try (BufferedReader reader = Files.newBufferedReader(
+            source.toPath(),
+            StandardCharsets.UTF_8
+    )) {
 
-        if (lines.isEmpty()) {
+        String headerLine = reader.readLine();
+
+        if (headerLine == null) {
             throw new IOException("CSV-файл пустой");
         }
 
-        // Читаем заголовки
-        String[] headers = parseCsvLine(lines.get(0), 1);
+        String[] headers = parseCsvLine(headerLine, 1);
 
-        List<String> objects = new ArrayList<>();
-
-        // Читаем строки данных
-        for (int i = 1; i < lines.size(); i++) {
-
-            String[] values = parseCsvLine(
-                    lines.get(i), i + 1
-            );
-
-            if (values.length != headers.length) {
-                throw new IOException(
-                        "Некорректное число столбцов в строке " + (i + 1)
-                );
-            }
-
-            // Формируем JSON-объект
-            List<String> fields = new ArrayList<>();
-
-            for (int j = 0; j < headers.length; j++) {
-                fields.add(
-                        "\"" + escapeJson(headers[j]) + "\": "
-                        + "\"" + escapeJson(values[j]) + "\""
-                );
-            }
-
-            objects.add(
-                    "  {\n    "
-                    + String.join(",\n    ", fields)
-                    + "\n  }"
-            );
-        }
-
-        String json = "[\n"
-                + String.join(",\n", objects)
-                + "\n]";
-
-        Files.writeString(
+        try (BufferedWriter writer = Files.newBufferedWriter(
                 target.toPath(),
-                json,
                 StandardCharsets.UTF_8
         );
-    }
+             JsonWriter jsonWriter = new JsonWriter(writer)) {
 
+            jsonWriter.setIndent("  ");
+            jsonWriter.beginArray();
+
+            String line;
+            int lineNumber = 1;
+
+            while ((line = reader.readLine()) != null) {
+
+                lineNumber++;
+
+                String[] values = parseCsvLine(line, lineNumber);
+
+                if (values.length != headers.length) {
+                    throw new IOException(
+                            "Некорректное число столбцов в строке "
+                                    + lineNumber
+                    );
+                }
+
+                jsonWriter.beginObject();
+
+                for (int i = 0; i < headers.length; i++) {
+                    jsonWriter.name(headers[i]);
+                    jsonWriter.value(values[i]);
+                }
+
+                jsonWriter.endObject();
+            }
+
+            jsonWriter.endArray();
+        }
+    }
+}
     private String[] parseCsvLine(
             String line,
             int lineNumber

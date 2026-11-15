@@ -3,7 +3,8 @@ Bundle-ManifestVersion: 2
 Bundle-Name: FormatFlow CSV JSON Converter
 Bundle-SymbolicName: formatflow.converter.csvjson
 Bundle-Version: 1.0.0.qualifier
-Require-Bundle: formatflow.api;bundle-version="1.0.0"
+Require-Bundle: formatflow.api;bundle-version="1.0.0",
+ com.google.gson
 Automatic-Module-Name: formatflow.converter.csvjson
 Bundle-Activator: formatflow.converter.csvjson.CsvJsonActivator
 Bundle-RequiredExecutionEnvironment: JavaSE-21

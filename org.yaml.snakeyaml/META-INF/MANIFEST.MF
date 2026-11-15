@@ -5,5 +5,14 @@ Bundle-SymbolicName: org.yaml.snakeyaml
 Bundle-Version: 2.7.0
 Bundle-ClassPath: snakeyaml-2.7.jar
 Bundle-RequiredExecutionEnvironment: JavaSE-21
-Export-Package: org.yaml.snakeyaml, org.yaml.snakeyaml.constructor, org.yaml.snakeyaml.error, org.yaml.snakeyaml.nodes, org.yaml.snakeyaml.representer
+Export-Package: org.yaml.snakeyaml,
+ org.yaml.snakeyaml.constructor,
+ org.yaml.snakeyaml.emitter,
+ org.yaml.snakeyaml.error,
+ org.yaml.snakeyaml.events,
+ org.yaml.snakeyaml.nodes,
+ org.yaml.snakeyaml.parser,
+ org.yaml.snakeyaml.reader,
+ org.yaml.snakeyaml.representer,
+ org.yaml.snakeyaml.resolver
 

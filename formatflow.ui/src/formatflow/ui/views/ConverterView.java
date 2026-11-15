@@ -282,7 +282,7 @@ public class ConverterView extends ViewPart {
                 false
         );
 
-        statusData.verticalIndent = 8;
+        statusData.verticalIndent = 2;
         statusPanel.setLayoutData(statusData);
     }
 

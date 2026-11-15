@@ -6,5 +6,6 @@ Bundle-Version: 1.0.0.qualifier
 Automatic-Module-Name: formatflow.converter.jsonxml
 Bundle-Activator: formatflow.converter.jsonxml.JsonXmlActivator
 Bundle-RequiredExecutionEnvironment: JavaSE-21
-Require-Bundle: formatflow.api
+Require-Bundle: formatflow.api,
+ com.google.gson
 Import-Package: org.osgi.framework, com.google.gson

@@ -7,4 +7,6 @@ Automatic-Module-Name: formatflow.converter.xmljson
 Bundle-Activator: formatflow.converter.xmljson.XmlJsonActivator
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Require-Bundle: formatflow.api
-Import-Package: org.osgi.framework, com.google.gson
+Import-Package: com.google.gson,
+ com.google.gson.stream,
+ org.osgi.framework

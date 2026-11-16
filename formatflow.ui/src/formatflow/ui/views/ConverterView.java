@@ -53,6 +53,8 @@ public class ConverterView extends ViewPart {
     private Combo targetFormatCombo;
 
     private Button convertButton;
+    private Button sourceBrowseButton;
+    private Button outputBrowseButton;
     private ConversionStatusPanel statusPanel;
 
     private ConversionServiceTracker serviceTracker;
@@ -166,10 +168,10 @@ public class ConverterView extends ViewPart {
         
         sourceFileText.setMessage("Select a file...");
 
-        Button browseButton = new Button(row, SWT.PUSH);
-        browseButton.setText("Browse...");
+        sourceBrowseButton = new Button(row, SWT.PUSH);
+        sourceBrowseButton.setText("Browse...");
 
-        browseButton.addListener(SWT.Selection, event -> {
+        sourceBrowseButton.addListener(SWT.Selection, event -> {
             FileDialog dialog = new FileDialog(
                     parent.getShell(), SWT.OPEN
             );
@@ -253,10 +255,10 @@ public class ConverterView extends ViewPart {
         
         outputFileText.setMessage("Choose destination...");
 
-        Button browseButton = new Button(row, SWT.PUSH);
-        browseButton.setText("Browse...");
+        outputBrowseButton = new Button(row, SWT.PUSH);
+        outputBrowseButton.setText("Browse...");
 
-        browseButton.addListener(SWT.Selection, event -> {
+        outputBrowseButton.addListener(SWT.Selection, event -> {
 
             FileDialog dialog = new FileDialog(
                     parent.getShell(), SWT.SAVE
@@ -397,7 +399,7 @@ public class ConverterView extends ViewPart {
         }
 
         converting = true;
-        updateConvertButtonState();
+        updateControlsState();
         updateStatus(
                 Status.READY,
                 "Converting...",
@@ -425,7 +427,7 @@ public class ConverterView extends ViewPart {
                             }
 
                             converting = false;
-                            updateConvertButtonState();
+                            updateControlsState();
                             updatePreview(outputPath, outputPreview);
                             updateStatus(
                                     Status.SUCCESS,
@@ -447,7 +449,7 @@ public class ConverterView extends ViewPart {
                             }
 
                             converting = false;
-                            updateConvertButtonState();
+                            updateControlsState();
                             outputPreview.clearPreview();
                             updateStatus(
                                     Status.ERROR,
@@ -723,6 +725,21 @@ private void createPreviewSection(Composite parent) {
                 "Ready to convert",
                 "Select files and start conversion"
         );
+    }
+    
+    private void updateControlsState() {
+        boolean enabled = !converting;
+
+        sourceFileText.setEnabled(enabled);
+        outputFileText.setEnabled(enabled);
+
+        sourceBrowseButton.setEnabled(enabled);
+        outputBrowseButton.setEnabled(enabled);
+
+        sourceFormatCombo.setEnabled(enabled);
+        targetFormatCombo.setEnabled(enabled);
+
+        updateConvertButtonState();
     }
 
     @Override

@@ -4,16 +4,20 @@ package formatflow.converter.jsoncsv;
 import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
+import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import com.google.gson.stream.JsonWriter;
 
 import formatflow.api.FileConverter;
 
@@ -44,7 +48,6 @@ public class JsonCsvConverter implements FileConverter {
             );
 
             readObjects(jsonReader, headers, null);
-
         }
 
         List<String> headerList = new ArrayList<>(headers);
@@ -62,28 +65,22 @@ public class JsonCsvConverter implements FileConverter {
 
             writeCsvRow(writer, headerList);
 
-            readObjects(jsonReader, null, new CsvRowWriter() {
+            readObjects(jsonReader, null, object -> {
 
-                @Override
-                public void write(
-                        java.util.Map<String, String> object
-                ) throws IOException {
+                List<String> values = new ArrayList<>();
 
-                    List<String> values = new ArrayList<>();
-
-                    for (String header : headerList) {
-                        values.add(object.getOrDefault(header, ""));
-                    }
-
-                    writeCsvRow(writer, values);
+                for (String header : headerList) {
+                    values.add(object.getOrDefault(header, ""));
                 }
+
+                writeCsvRow(writer, values);
             });
         }
     }
 
     @FunctionalInterface
     private interface CsvRowWriter {
-        void write(java.util.Map<String, String> object)
+        void write(Map<String, String> object)
                 throws IOException;
     }
 
@@ -107,42 +104,13 @@ public class JsonCsvConverter implements FileConverter {
                 );
             }
 
-            java.util.Map<String, String> object =
-                    new java.util.LinkedHashMap<>();
+            Map<String, String> object = new LinkedHashMap<>();
 
-            reader.beginObject();
+            readObject(reader, "", object);
 
-            while (reader.hasNext()) {
-
-                String name = reader.nextName();
-
-                JsonToken token = reader.peek();
-
-                String value;
-
-                switch (token) {
-                    case STRING, NUMBER -> value = reader.nextString();
-                    case BOOLEAN -> value =
-                            String.valueOf(reader.nextBoolean());
-                    case NULL -> {
-                        reader.nextNull();
-                        value = "";
-                    }
-                    default -> throw new IOException(
-                            "Nested JSON values are not supported"
-                    );
-                }
-
-                if (headers != null) {
-                    headers.add(name);
-                }
-
-                if (rowWriter != null) {
-                    object.put(name, value);
-                }
+            if (headers != null) {
+                headers.addAll(object.keySet());
             }
-
-            reader.endObject();
 
             if (rowWriter != null) {
                 rowWriter.write(object);
@@ -154,6 +122,124 @@ public class JsonCsvConverter implements FileConverter {
         if (reader.peek() != JsonToken.END_DOCUMENT) {
             throw new IOException(
                     "Unexpected content after JSON array"
+            );
+        }
+    }
+
+    private void readObject(
+            JsonReader reader,
+            String prefix,
+            Map<String, String> object
+    ) throws IOException {
+
+        reader.beginObject();
+
+        while (reader.hasNext()) {
+
+            String name = reader.nextName();
+
+            String key = prefix.isEmpty()
+                    ? name
+                    : prefix + "." + name;
+
+            JsonToken token = reader.peek();
+
+            switch (token) {
+
+                case BEGIN_OBJECT ->
+                        readObject(reader, key, object);
+
+                case BEGIN_ARRAY ->
+                        object.put(key, readArray(reader));
+
+                case STRING, NUMBER ->
+                        object.put(key, reader.nextString());
+
+                case BOOLEAN ->
+                        object.put(
+                                key,
+                                String.valueOf(reader.nextBoolean())
+                        );
+
+                case NULL -> {
+                    reader.nextNull();
+                    object.put(key, "");
+                }
+
+                default -> throw new IOException(
+                        "Unsupported JSON value at " + reader.getPath()
+                );
+            }
+        }
+
+        reader.endObject();
+    }
+
+    private String readArray(JsonReader reader) throws IOException {
+
+        StringWriter buffer = new StringWriter();
+
+        try (JsonWriter writer = new JsonWriter(buffer)) {
+            writer.setSerializeNulls(true);
+            copyJsonValue(reader, writer);
+        }
+
+        return buffer.toString();
+    }
+
+    private void copyJsonValue(
+            JsonReader reader,
+            JsonWriter writer
+    ) throws IOException {
+
+        JsonToken token = reader.peek();
+
+        switch (token) {
+
+            case BEGIN_OBJECT -> {
+                reader.beginObject();
+                writer.beginObject();
+
+                while (reader.hasNext()) {
+                    String name = reader.nextName();
+                    writer.name(name);
+                    copyJsonValue(reader, writer);
+                }
+
+                reader.endObject();
+                writer.endObject();
+            }
+
+            case BEGIN_ARRAY -> {
+                reader.beginArray();
+                writer.beginArray();
+
+                while (reader.hasNext()) {
+                    copyJsonValue(reader, writer);
+                }
+
+                reader.endArray();
+                writer.endArray();
+            }
+
+            case STRING ->
+                    writer.value(reader.nextString());
+
+            case NUMBER -> {
+                String number = reader.nextString();
+                writer.jsonValue(number);
+            }
+
+            case BOOLEAN ->
+                    writer.value(reader.nextBoolean());
+
+            case NULL -> {
+                reader.nextNull();
+                writer.nullValue();
+            }
+
+            default -> throw new IOException(
+                    "Unsupported JSON value at " + reader.getPath()
             );
         }
     }

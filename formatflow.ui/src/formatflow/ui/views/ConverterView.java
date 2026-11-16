@@ -33,6 +33,15 @@ import formatflow.ui.preview.FilePreviewPanel;
 import formatflow.ui.preview.FilePreviewService;
 import formatflow.ui.util.FileFormatDetector;
 import formatflow.ui.util.OutputPathGenerator;
+import org.eclipse.jface.resource.FontDescriptor;
+import org.eclipse.jface.resource.JFaceResources;
+import org.eclipse.jface.resource.LocalResourceManager;
+import org.eclipse.swt.graphics.Font;
+import org.eclipse.ui.ISharedImages;
+import org.eclipse.ui.PlatformUI;
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.jobs.Job;
 
 
 public class ConverterView extends ViewPart {
@@ -49,6 +58,7 @@ public class ConverterView extends ViewPart {
     private ConversionServiceTracker serviceTracker;
     private FilePreviewPanel sourcePreview;
     private FilePreviewPanel outputPreview;
+    private LocalResourceManager resources;
 
 
 
@@ -57,23 +67,33 @@ public class ConverterView extends ViewPart {
    
     private boolean outputPathManuallyChanged = false;
     private boolean updatingOutputPath = false;
+    private boolean converting = false;
 
     @Override
     public void createPartControl(Composite parent) {
 
         // Создаём интерфейс
+    	resources = new LocalResourceManager(
+                JFaceResources.getResources(), parent);
+
         Composite container = new Composite(parent, SWT.NONE);
-        container.setLayout(new GridLayout(1, false));
+
+        GridLayout layout = new GridLayout(1, false);
+        layout.marginWidth = 16;
+        layout.marginHeight = 16;
+        layout.verticalSpacing = 8;
+        container.setLayout(layout);
         container.setLayoutData(
-                new GridData(SWT.FILL, SWT.FILL, true, true)
-        );
+                new GridData(SWT.FILL, SWT.FILL, true, true));
 
         createHeader(container);
         createSourceFileSection(container);
         createFormatsSection(container);
         createOutputFileSection(container);
         createConvertSection(container);
+        createSeparator(container);
         createPreviewSection(container);
+        createStatusSection(container); 
 
         // Запускаем отслеживание OSGi-сервиса
         Bundle bundle = FrameworkUtil.getBundle(ConverterView.class);
@@ -97,12 +117,41 @@ public class ConverterView extends ViewPart {
 
     private void createHeader(Composite parent) {
 
-        Label title = new Label(parent, SWT.NONE);
-        title.setText("FormatFlow - File Converter");
+        Composite header = new Composite(parent, SWT.NONE);
+        GridLayout layout = new GridLayout(1, false);
+        layout.marginWidth = 0;
+        layout.marginHeight = 0;
+        layout.verticalSpacing = 2;
+        header.setLayout(layout);
+        header.setLayoutData(
+                new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        Label description = new Label(parent, SWT.NONE);
-        description.setText("Convert files using available formats");
+        Label title = new Label(header, SWT.NONE);
+        title.setText("FormatFlow");
+        Font titleFont = resources.create(
+                FontDescriptor.createFrom(title.getFont())
+                        .setStyle(SWT.BOLD)
+                        .increaseHeight(4));
+        title.setFont(titleFont);
+
+        Label description = new Label(header, SWT.NONE);
+        description.setText("File format converter");
+        description.setForeground(
+                parent.getDisplay().getSystemColor(
+                        SWT.COLOR_WIDGET_NORMAL_SHADOW));
+
+        createSeparator(parent);
     }
+
+    private void createSeparator(Composite parent) {
+        Label separator = new Label(
+                parent, SWT.SEPARATOR | SWT.HORIZONTAL);
+        GridData data = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        data.verticalIndent = 4;
+        separator.setLayoutData(data);
+    }
+    
+    
 
     private void createSourceFileSection(Composite parent) {
 
@@ -114,6 +163,8 @@ public class ConverterView extends ViewPart {
         sourceFileText.setLayoutData(
                 new GridData(SWT.FILL, SWT.CENTER, true, false)
         );
+        
+        sourceFileText.setMessage("Select a file...");
 
         Button browseButton = new Button(row, SWT.PUSH);
         browseButton.setText("Browse...");
@@ -153,56 +204,42 @@ public class ConverterView extends ViewPart {
         });
     }
 
-    private void createFormatsSection(Composite parent) {
+   private void createFormatsSection(Composite parent) {
 
-        Composite row = createTwoColumnRow(parent);
+    Composite row = new Composite(parent, SWT.NONE);
+    GridLayout layout = new GridLayout(2, true);   // равная ширина
+    layout.marginWidth = 0;
+    layout.marginHeight = 0;
+    layout.horizontalSpacing = 16;
+    layout.verticalSpacing = 4;
+    row.setLayout(layout);
+    row.setLayoutData(
+            new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        Composite sourceColumn = new Composite(row, SWT.NONE);
-        sourceColumn.setLayout(new GridLayout(1, false));
-        sourceColumn.setLayoutData(
-                new GridData(SWT.FILL, SWT.CENTER, true, false)
-        );
+    createSectionLabel(row, "From");
+    createSectionLabel(row, "To");
 
-        createSectionLabel(sourceColumn, "Source format");
+    sourceFormatCombo = new Combo(
+            row, SWT.DROP_DOWN | SWT.READ_ONLY);
+    sourceFormatCombo.setLayoutData(
+            new GridData(SWT.FILL, SWT.CENTER, true, false));
+    sourceFormatCombo.addListener(SWT.Selection, event -> {
+        updateTargetFormats();
+        updateOutputPath();
+        outputPreview.clearPreview();
+        resetConversionStatus();
+    });
 
-        sourceFormatCombo = new Combo(
-                sourceColumn, SWT.DROP_DOWN | SWT.READ_ONLY
-        );
-
-        sourceFormatCombo.setLayoutData(
-                new GridData(SWT.FILL, SWT.CENTER, true, false)
-        );
-
-        sourceFormatCombo.addListener(SWT.Selection, event -> {
-            updateTargetFormats();
-            updateOutputPath();
-            outputPreview.clearPreview();
-            resetConversionStatus();
-        });
-
-        Composite targetColumn = new Composite(row, SWT.NONE);
-        targetColumn.setLayout(new GridLayout(1, false));
-        targetColumn.setLayoutData(
-                new GridData(SWT.FILL, SWT.CENTER, true, false)
-        );
-
-        createSectionLabel(targetColumn, "Target format");
-
-        targetFormatCombo = new Combo(
-                targetColumn, SWT.DROP_DOWN | SWT.READ_ONLY
-        );
-
-        targetFormatCombo.setLayoutData(
-                new GridData(SWT.FILL, SWT.CENTER, true, false)
-        );
-        
-        targetFormatCombo.addListener(SWT.Selection, event -> {
-            updateOutputPath();
-            outputPreview.clearPreview();
-            resetConversionStatus();
-        });
-    }
-
+    targetFormatCombo = new Combo(
+            row, SWT.DROP_DOWN | SWT.READ_ONLY);
+    targetFormatCombo.setLayoutData(
+            new GridData(SWT.FILL, SWT.CENTER, true, false));
+    targetFormatCombo.addListener(SWT.Selection, event -> {
+        updateOutputPath();
+        outputPreview.clearPreview();
+        resetConversionStatus();
+    });
+}
     private void createOutputFileSection(Composite parent) {
 
         createSectionLabel(parent, "Output file");
@@ -213,6 +250,8 @@ public class ConverterView extends ViewPart {
         outputFileText.setLayoutData(
                 new GridData(SWT.FILL, SWT.CENTER, true, false)
         );
+        
+        outputFileText.setMessage("Choose destination...");
 
         Button browseButton = new Button(row, SWT.PUSH);
         browseButton.setText("Browse...");
@@ -260,30 +299,30 @@ public class ConverterView extends ViewPart {
     private void createConvertSection(Composite parent) {
 
         convertButton = new Button(parent, SWT.PUSH);
-        convertButton.setText("Convert");
+        convertButton.setText("Convert file");
+        convertButton.setImage(
+                PlatformUI.getWorkbench().getSharedImages()
+                        .getImage(ISharedImages.IMG_TOOL_FORWARD));
 
-        GridData buttonData =
-                new GridData(SWT.FILL, SWT.CENTER, true, false);
-        buttonData.verticalIndent = 12;
+        Font bold = resources.create(
+                FontDescriptor.createFrom(convertButton.getFont())
+                        .setStyle(SWT.BOLD));
+        convertButton.setFont(bold);
 
-        convertButton.setLayoutData(buttonData);
+        GridData data = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        data.heightHint = 40;
+        data.verticalIndent = 8;
+        convertButton.setLayoutData(data);
 
         convertButton.addListener(
-                SWT.Selection,
-                event -> handleConvert()
-        );
+                SWT.Selection, event -> handleConvert());
+    }
+
+    private void createStatusSection(Composite parent) {
 
         statusPanel = new ConversionStatusPanel(parent);
-
-        GridData statusData = new GridData(
-                SWT.FILL,
-                SWT.CENTER,
-                true,
-                false
-        );
-
-        statusData.verticalIndent = 2;
-        statusPanel.setLayoutData(statusData);
+        statusPanel.setLayoutData(
+                new GridData(SWT.FILL, SWT.CENTER, true, false));
     }
 
     private void createSectionLabel(
@@ -297,30 +336,29 @@ public class ConverterView extends ViewPart {
     private Composite createTwoColumnRow(Composite parent) {
 
         Composite row = new Composite(parent, SWT.NONE);
-        row.setLayout(new GridLayout(2, false));
+        GridLayout layout = new GridLayout(2, false);
+        layout.marginWidth = 0;
+        layout.marginHeight = 0;
+        layout.horizontalSpacing = 8;
+        row.setLayout(layout);
         row.setLayoutData(
-                new GridData(SWT.FILL, SWT.CENTER, true, false)
-        );
-
+                new GridData(SWT.FILL, SWT.CENTER, true, false));
         return row;
     }
 
     private void handleConvert() {
 
+        if (converting) {
+            return;
+        }
+
         String sourcePath = sourceFileText.getText().trim();
         String outputPath = outputFileText.getText().trim();
 
         try {
-            ConversionValidator.validateFiles(
-                    sourcePath, outputPath
-            );
+            ConversionValidator.validateFiles(sourcePath, outputPath);
         } catch (IllegalArgumentException | IOException e) {
-        	updateStatus(
-        	        Status.ERROR,
-        	        "Invalid file",
-        	        e.getMessage()
-        	);
-
+            updateStatus(Status.ERROR, "Invalid file", e.getMessage());
             MessageDialog.openError(
                     getSite().getShell(),
                     "File validation error",
@@ -341,15 +379,15 @@ public class ConverterView extends ViewPart {
             return;
         }
 
-        FileConversionService service = serviceTracker.getService();
+        FileConversionService service =
+                serviceTracker != null ? serviceTracker.getService() : null;
 
         if (service == null) {
-        	updateStatus(
-        	        Status.ERROR,
-        	        "Service unavailable",
-        	        "Conversion service is not available"
-        	);
-
+            updateStatus(
+                    Status.ERROR,
+                    "Service unavailable",
+                    "Conversion service is not available"
+            );
             MessageDialog.openError(
                     getSite().getShell(),
                     "Service unavailable",
@@ -358,43 +396,83 @@ public class ConverterView extends ViewPart {
             return;
         }
 
-        try {
-            service.convert(
-                    new File(sourcePath),
-                    new File(outputPath),
-                    sourceFormat,
-                    targetFormat
-            );
-            
-            updatePreview(outputPath, outputPreview);
+        converting = true;
+        updateConvertButtonState();
+        updateStatus(
+                Status.READY,
+                "Converting...",
+                "Please wait while the file is being processed"
+        );
 
-            updateStatus(
-                    Status.SUCCESS,
-                    "Conversion completed successfully",
-                    "Output file is ready"
-            );
+        Display display = convertButton.getDisplay();
 
-            MessageDialog.openInformation(
-                    getSite().getShell(),
-                    "Success",
-                    "File converted successfully!"
-            );
+        Job job = new Job("FormatFlow conversion") {
+            @Override
+            protected IStatus run(IProgressMonitor monitor) {
+                monitor.beginTask("Converting file", IProgressMonitor.UNKNOWN);
+                try {
+                    service.convert(
+                            new File(sourcePath),
+                            new File(outputPath),
+                            sourceFormat,
+                            targetFormat
+                    );
 
-        } catch (IOException | IllegalArgumentException e) {
-        	updateStatus(
-        	        Status.ERROR,
-        	        "Conversion failed",
-        	        e.getMessage()
-        	);
-          
-            outputPreview.clearPreview();
+                    if (!display.isDisposed()) {
+                        display.asyncExec(() -> {
+                            if (convertButton.isDisposed()) {
+                                return;
+                            }
 
-            MessageDialog.openError(
-                    getSite().getShell(),
-                    "Conversion error",
-                    e.getMessage() != null ? e.getMessage() : e.toString()
-            );
-        }
+                            converting = false;
+                            updateConvertButtonState();
+                            updatePreview(outputPath, outputPreview);
+                            updateStatus(
+                                    Status.SUCCESS,
+                                    "Conversion completed successfully",
+                                    "Output file is ready"
+                            );
+                            MessageDialog.openInformation(
+                                    getSite().getShell(),
+                                    "Success",
+                                    "File converted successfully!"
+                            );
+                        });
+                    }
+                } catch (IOException | IllegalArgumentException e) {
+                    if (!display.isDisposed()) {
+                        display.asyncExec(() -> {
+                            if (convertButton.isDisposed()) {
+                                return;
+                            }
+
+                            converting = false;
+                            updateConvertButtonState();
+                            outputPreview.clearPreview();
+                            updateStatus(
+                                    Status.ERROR,
+                                    "Conversion failed",
+                                    e.getMessage()
+                            );
+                            MessageDialog.openError(
+                                    getSite().getShell(),
+                                    "Conversion error",
+                                    e.getMessage() != null
+                                            ? e.getMessage() : e.toString()
+                            );
+                        });
+                    }
+                } finally {
+                    monitor.done();
+                }
+
+                // Ошибку конвертации уже показывает интерфейс FormatFlow.
+                // Не вызываем второе окно ошибки со стороны Eclipse Jobs.
+                return org.eclipse.core.runtime.Status.OK_STATUS;
+            }
+        };
+
+        job.schedule();
     }
 
     private void updateSourceFormats() {
@@ -498,7 +576,9 @@ public class ConverterView extends ViewPart {
                 && serviceTracker.getService() != null;
 
         convertButton.setEnabled(
-                formatsAvailable && serviceAvailable
+                formatsAvailable
+                && serviceAvailable
+                && !converting
         );
     }
 
@@ -539,6 +619,7 @@ private void createPreviewSection(Composite parent) {
     layoutData.minimumHeight = 150;
 
     previewContainer.setLayoutData(layoutData);
+    previewContainer.setSashWidth(12);
 
     sourcePreview = new FilePreviewPanel(
             previewContainer,
